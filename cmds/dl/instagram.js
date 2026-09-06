@@ -63,7 +63,8 @@ export default {
         }
       }
     } catch (e) {
-      await sock.reply(msg.chat, msgglobal, msg)
+      console.error('[ig]', e)
+      await sock.reply(msg.chat, `《✧》 Error: ${e?.message || e}`, msg)
     }
   }
 }
