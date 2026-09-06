@@ -59,7 +59,7 @@ export default {
           await sock.sendMessage(msg.chat, { [type || 'video']: { url: dl }, caption }, { quoted: msg })
         }
       } catch (e) {
-        await msg.reply(msgglobal)
+        console.error('[tiktok]', e); await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => console.error('[tiktok]', e); msg.reply(`《✧》 Error: ${e?.message || e}`))
       }
     } else {
       const query = args.filter(a => a !== '--mp3').join(" ")
