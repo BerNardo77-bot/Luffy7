@@ -111,7 +111,8 @@ ${dev}`
 const imagen = await obtenerImagen(personaje.keyword, personaje.name);
 
 if (!imagen) {
-  return msg.reply(`✎ No se pudo obtener una imagen para *${personaje.name}*.`);
+  await db.updateChatUser(chatId, userId, 'rwCooldown', 0)
+  return msg.reply(`✎ No se pudo obtener una imagen para *${personaje.name}*. Prueba /rw de nuevo.`);
 }
 
 const payload = {
