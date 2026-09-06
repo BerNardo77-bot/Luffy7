@@ -39,8 +39,8 @@ export default {
         { quoted: msg }
       );
     } catch (e) {
-      console.error(e);
-      msg.reply(msgglobal);
+      console.error("[mf]", e);
+      msg.reply(`《✧》 Error: ${e?.message || e}`);
     }
   },
 };
