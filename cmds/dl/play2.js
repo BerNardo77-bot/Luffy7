@@ -8,13 +8,18 @@ import { getBuffer } from '#serialize'
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
-const MAX_BYTES = 45 * 1024 * 1024
+const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024 // pedir/bajar hasta 500MB
+const MAX_SEND_BYTES = 64 * 1024 * 1024 // limite practico WhatsApp
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
 
 function getApiKey() {
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
   if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
   return key
+}
+
+function mb(n) {
+  return (n / 1024 / 1024).toFixed(1)
 }
 
 async function fetchJson(url) {
@@ -35,10 +40,17 @@ async function downloadVideoBuffer(url) {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
       Accept: '*/*'
     },
-    timeout: 180000
+    timeout: 600000
   })
   if (!res.ok) throw new Error(`Descarga HTTP ${res.status}`)
+  const len = Number(res.headers.get('content-length') || 0)
+  if (len && len > MAX_DOWNLOAD_BYTES) {
+    throw new Error(`El video pesa ~${mb(len)} MB (limite de descarga 500 MB)`)
+  }
   const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length > MAX_DOWNLOAD_BYTES) {
+    throw new Error(`El video pesa ${mb(buf.length)} MB (limite de descarga 500 MB)`)
+  }
   return buf
 }
 
@@ -47,26 +59,41 @@ function isMp4(buf) {
   return buf.slice(4, 8).toString() === 'ftyp'
 }
 
-async function remuxForWhatsApp(inputBuf, baseName) {
-  try {
-    if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
-    const inFile = path.join(TMP_DIR, `${baseName}-in.mp4`)
-    const outFile = path.join(TMP_DIR, `${baseName}-out.mp4`)
-    fs.writeFileSync(inFile, inputBuf)
-    // Remux rápido; si falla, reencode ligero
+async function compressForWhatsApp(inputBuf, baseName) {
+  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
+  const inFile = path.join(TMP_DIR, `${baseName}-in.mp4`)
+  const outFile = path.join(TMP_DIR, `${baseName}-out.mp4`)
+  fs.writeFileSync(inFile, inputBuf)
+
+  const attempts = [
+    // remux
+    ['-y', '-i', inFile, '-c', 'copy', '-movflags', '+faststart', outFile],
+    // compresion media
+    ['-y', '-i', inFile, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-vf', 'scale=\'min(854,iw)\':-2', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', outFile],
+    // mas agresiva
+    ['-y', '-i', inFile, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-vf', 'scale=\'min(640,iw)\':-2', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', outFile]
+  ]
+
+  let best = null
+  for (const args of attempts) {
     try {
-      await execFileAsync('ffmpeg', ['-y', '-i', inFile, '-c', 'copy', '-movflags', '+faststart', outFile], { timeout: 120000 })
-    } catch {
-      await execFileAsync('ffmpeg', ['-y', '-i', inFile, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', outFile], { timeout: 300000 })
+      await execFileAsync('ffmpeg', args, { timeout: 600000 })
+      if (!fs.existsSync(outFile)) continue
+      const out = fs.readFileSync(outFile)
+      if (!out.length) continue
+      if (!best || out.length < best.length) best = out
+      if (out.length <= MAX_SEND_BYTES) {
+        best = out
+        break
+      }
+    } catch (e) {
+      console.error('[ytvideo] ffmpeg attempt', e?.message || e)
     }
-    const out = fs.readFileSync(outFile)
-    try { fs.unlinkSync(inFile) } catch {}
-    try { fs.unlinkSync(outFile) } catch {}
-    return out
-  } catch (e) {
-    console.error('[ytvideo] ffmpeg', e?.message || e)
-    return inputBuf
   }
+
+  try { fs.unlinkSync(inFile) } catch {}
+  try { fs.unlinkSync(outFile) } catch {}
+  return best || inputBuf
 }
 
 async function descargarMp4(videoUrl, titleQuery, key) {
@@ -87,11 +114,18 @@ async function descargarMp4(videoUrl, titleQuery, key) {
 
   for (const useKey of keys) {
     for (const q of queries) {
-      for (const quality of ['360', '480', 'auto']) {
+      for (const quality of ['360', '480', 'auto', '720']) {
         try {
           const apiUrl = `${base}/dl/youtubeplayv2?query=${encodeURIComponent(q)}&type=mp4&quality=${quality}&key=${useKey}`
           const res = await fetchJson(apiUrl)
-          if (res?.status && res?.data?.dl) return res
+          if (res?.status && res?.data?.dl) {
+            const size = Number(res.data.size || 0)
+            if (size && size > MAX_DOWNLOAD_BYTES) {
+              lastMsg = `El video pesa ~${mb(size)} MB (limite 500 MB)`
+              continue
+            }
+            return res
+          }
           lastMsg = res?.message || res?.error || lastMsg
         } catch (e) {
           lastMsg = e.message || lastMsg
@@ -151,7 +185,7 @@ export default {
 > _✰ \`Vistas\` ── ${vistas}_
 > _🜸 \`Enlace\` ── ${url}_
 
-> _──  ִ    ۟  *Descargando archivo…*_`
+> _──  ִ    ۟  *Descargando (hasta 500MB; si pesa mucho se comprime…)*_`
 
       if (thumbBuffer) {
         await sock.sendMessage(msg.chat, { image: thumbBuffer, caption }, { quoted: msg })
@@ -170,28 +204,36 @@ export default {
       const safeName = `${(res.data?.title || title || 'video').replace(/[^\w\s.-]/g, '').slice(0, 40) || 'video'}`
       const fileName = `${safeName}.mp4`
 
-      await msg.reply('《✧》 Bajando el video al celular del bot…')
+      await msg.reply('《✧》 Bajando el video…')
       let videoBuffer = await downloadVideoBuffer(dlUrl)
 
-      if (!videoBuffer?.length) {
-        return msg.reply('《✧》 El archivo de video vino vacío.')
-      }
-      if (videoBuffer.length > MAX_BYTES) {
-        return msg.reply(`《✧》 Pesa ${(videoBuffer.length / 1024 / 1024).toFixed(1)} MB; demasiado para WhatsApp/Termux. Usa /play (audio) o un video más corto.`)
-      }
+      if (!videoBuffer?.length) return msg.reply('《✧》 El archivo de video vino vacío.')
       if (!isMp4(videoBuffer)) {
-        return msg.reply('《✧》 La API no devolvió un MP4 válido (archivo corrupto o HTML). Prueba otro video.')
+        return msg.reply('《✧》 La API no devolvió un MP4 válido. Prueba otro video.')
       }
 
-      videoBuffer = await remuxForWhatsApp(videoBuffer, `${Date.now()}`)
+      if (videoBuffer.length > MAX_SEND_BYTES) {
+        await msg.reply(`《✧》 Pesa ${mb(videoBuffer.length)} MB. WhatsApp no manda tanto; comprimiendo para que quepa (<64 MB)…`)
+        videoBuffer = await compressForWhatsApp(videoBuffer, `${Date.now()}`)
+      } else {
+        // remux ligero para compatibilidad
+        videoBuffer = await compressForWhatsApp(videoBuffer, `${Date.now()}`)
+      }
 
-      // Documento primero: WhatsApp suele fallar menos que "video" con archivos de APIs
+      if (!videoBuffer?.length) {
+        return msg.reply('《✧》 No se pudo preparar el video.')
+      }
+
+      if (videoBuffer.length > MAX_SEND_BYTES) {
+        return msg.reply(`《✧》 Aun comprimido pesa ${mb(videoBuffer.length)} MB y WhatsApp no lo acepta (limite ~64 MB). Usa /play (audio) o un video mas corto.\n🔗 ${dlUrl}`)
+      }
+
       try {
         await sock.sendMessage(msg.chat, {
           document: videoBuffer,
           mimetype: 'video/mp4',
           fileName,
-          caption: title
+          caption: `${title}\n(${mb(videoBuffer.length)} MB)`
         }, { quoted: msg })
       } catch (e1) {
         console.error('[ytvideo] document fail', e1)
