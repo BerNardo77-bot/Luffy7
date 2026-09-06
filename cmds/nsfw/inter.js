@@ -94,14 +94,16 @@ export default {
         : `${fromName} ${captionText} ${getRandomSymbol()}.`;
 
     try {
-      const response = await fetch(`${api.url}/nsfw/interaction?inter=${baseCommand}`);
+      const response = await fetch(`${api.url}/nsfw/interaction?inter=${baseCommand}&key=${api.key}`);
       const json = await response.json();
-      const { result } = json;
+      if (!json?.status || !json?.result) {
+        return msg.reply(`《✧》 API NSFW: ${json?.message || 'sin resultado'}`);
+      }
 
       await sock.sendMessage(
         msg.chat,
         {
-          video: { url: result },
+          video: { url: json.result },
           gifPlayback: true,
           caption,
           mentions: [who, msg.sender]
@@ -109,7 +111,8 @@ export default {
         { quoted: msg }
       );
     } catch (e) {
-      await msg.reply(msgglobal);
+      console.error('[nsfw/inter]', e);
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => msg.reply(msgglobal));
     }
   }
 };
