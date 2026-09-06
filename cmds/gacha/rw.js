@@ -5,10 +5,10 @@ import fetch from 'node-fetch';
 
 const obtenerImagen = async (keyword, name = '') => {
   const endpoints = ["safebooru", "gelbooru", "danbooru"];
-  const key = (api?.key || '').trim();
-  if (!key || key === 'TU-API-KEY') {
-    console.error('[rw] API key inválida o placeholder en settings.js');
-    return { error: 'api_key' };
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim();
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') {
+    key = 'LUFFY-FIX67';
+    console.error('[rw] Usando API key fallback LUFFY-FIX67 (settings.js no tenía key válida)');
   }
 
   const variants = [];
