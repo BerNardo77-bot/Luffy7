@@ -69,7 +69,8 @@ const mensaje = {
 await sock.sendMessage(msg.chat, mensaje, { quoted: msg });
 
     } catch (e) {
-      await msg.reply(msgglobal)
+      console.error('[sp]', e)
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => msg.reply(msgglobal))
     }
   }
 }
