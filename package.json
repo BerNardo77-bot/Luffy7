@@ -1,0 +1,55 @@
+{
+  "name": "luffy7",
+  "version": "1.0.0",
+  "description": "Monkey D. Luffy Bot MD (Luffy7) \u2014 WhatsApp bot con todas las descargas activadas. Basado en nene504273/Monkey-D-luffy-Bot-MD.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "imports": {
+    "#serialize": "./lib/serialize.js",
+    "#handler": "./handler.js",
+    "#db": "./lib/system/database.js",
+    "#cmdsloader": "./lib/system/cmdsloader.js",
+    "#events": "./cmds/events.js",
+    "#cmds/*": "./cmds/*.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys"
+  ],
+  "author": "BerNardo77-bot",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0",
+    "npm": ">=10.9.4"
+  },
+  "dependencies": {
+    "@hapi/boom": "latest",
+    "baileys": "7.0.0-rc13",
+    "yargs": "^18.0.0",
+    "axios": "^1.16.1",
+    "chalk": "^4.1.2",
+    "http": "latest",
+    "fluent-ffmpeg": "^2.1.2",
+    "form-data": "^4.0.0",
+    "gradient-string": "^2.0.2",
+    "human-readable": "^0.2.1",
+    "jimp": "^1.6.1",
+    "moment-timezone": "^0.5.48",
+    "moment": "^2.29.4",
+    "mime-types": "^3.0.2",
+    "node-fetch": "^2.7.0",
+    "node-cache": "^5.1.2",
+    "node-webpmux": "^3.2.0",
+    "grapheme-splitter": "^1.0.4",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0",
+    "readline-sync": "^1.4.10",
+    "syntax-error": "^1.4.0",
+    "uuid": "^14.0.0",
+    "yt-search": "^2.10.4"
+  }
+}
