@@ -2,6 +2,74 @@ import yts from 'yt-search'
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 
+const FALLBACK_KEY = 'LUFFY-FIX67'
+
+function getApiKey() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  return key
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'Accept': 'application/json'
+    }
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json()
+}
+
+async function descargarMp4(videoUrl, titleQuery, key) {
+  const base = (typeof api !== 'undefined' && api?.url) ? api.url : 'https://api.alyacore.xyz'
+  const queries = []
+  const add = (q) => { if (q && !queries.includes(q)) queries.push(q) }
+  add(videoUrl)
+  // youtu.be short
+  const idMatch = String(videoUrl).match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([a-zA-Z0-9_-]{11})/)
+  if (idMatch) {
+    add(`https://youtu.be/${idMatch[1]}`)
+    add(`https://www.youtube.com/watch?v=${idMatch[1]}`)
+    add(idMatch[1])
+  }
+  if (titleQuery) add(titleQuery)
+
+  const keys = [key]
+  if (key !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+
+  let lastMsg = 'No se encontraron resultados para la búsqueda.'
+
+  for (const useKey of keys) {
+    for (const q of queries) {
+      // Endpoint principal
+      try {
+        const apiUrl = `${base}/dl/youtubeplayv2?query=${encodeURIComponent(q)}&type=mp4&quality=auto&key=${useKey}`
+        const res = await fetchJson(apiUrl)
+        if (res?.status && res?.data?.dl) return res
+        lastMsg = res?.message || res?.error || lastMsg
+      } catch (e) {
+        lastMsg = e.message || lastMsg
+      }
+
+      // Endpoint alterno
+      try {
+        const alt = `${base}/dl/ytmp4?url=${encodeURIComponent(q.startsWith('http') ? q : (idMatch ? `https://youtu.be/${idMatch[1]}` : q))}&key=${useKey}`
+        const res2 = await fetchJson(alt)
+        if (res2?.status && (res2?.data?.dl || res2?.result?.dl || res2?.dl)) {
+          const dl = res2.data?.dl || res2.result?.dl || res2.dl
+          return { status: true, data: { ...(res2.data || {}), dl, title: res2.data?.title || titleQuery } }
+        }
+        lastMsg = res2?.message || res2?.error || lastMsg
+      } catch (e) {
+        lastMsg = e.message || lastMsg
+      }
+    }
+  }
+
+  return { status: false, message: lastMsg }
+}
+
 export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
@@ -15,7 +83,6 @@ export default {
       const videoMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/|v\/))([a-zA-Z0-9_-]{11})/)
       const query = videoMatch ? 'https://youtu.be/' + videoMatch[1] : text
 
-      // Búsqueda del video
       const search = await yts(query)
       const videoInfo = videoMatch
         ? search.videos.find(v => v.videoId === videoMatch[1]) || search.all[0]
@@ -43,35 +110,14 @@ export default {
 
       await sock.sendMessage(msg.chat, { image: thumbBuffer, caption }, { quoted: msg })
 
-      // 🔗 Llamada a la nueva API (youtubeplayv2)
-      const apiUrl = `${api.url}/dl/youtubeplayv2?query=${encodeURIComponent(url)}&type=mp4&quality=auto&key=${api.key}`
+      const key = getApiKey()
+      const res = await descargarMp4(url, title, key)
 
-      let res
-      try {
-        const response = await fetch(apiUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Accept': 'application/json'
-          }
-        })
-        
-        // Verificamos si el servidor devuelve un error HTTP (ej. 503, 404) antes de convertir a JSON
-        if (!response.ok) {
-           return msg.reply(`《✧》 La API falló con el código de estado: ${response.status}`)
-        }
-        
-        res = await response.json()
-      } catch (error) {
-        return msg.reply(`《✧》 Error al conectar con la API: ${error.message}`)
-      }
-
-      // Validación más descriptiva basada en la nueva estructura
       if (!res?.status || !res.data?.dl) {
         const motivo = res?.message || res?.error || 'Motivo no especificado'
-        return msg.reply(`《✧》 Falló la descarga.\n📌 Razón de la API: ${motivo}`)
+        return msg.reply(`《✧》 Falló la descarga.\n📌 Razón de la API: ${motivo}\n\nPrueba con un enlace directo:\n/ytvideo https://youtu.be/ID`)
       }
 
-      // Envío del video (ya no es necesario descargar el Buffer previamente si WhatsApp procesa la URL directa)
       const mensaje = {
         video: { url: res.data.dl },
         fileName: `${res.data?.title || title || 'video'}.mp4`,
@@ -81,9 +127,8 @@ export default {
       await sock.sendMessage(msg.chat, mensaje, { quoted: msg })
 
     } catch (e) {
-      // Error global controlado
-      await msg.reply('《✧》 Ocurrió un error inesperado. Inténtalo de nuevo más tarde.').catch(() => {})
-      console.error(e) // Para depurar en consola
+      console.error('[ytvideo]', e)
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
     }
   }
 }
