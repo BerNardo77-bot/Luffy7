@@ -148,6 +148,10 @@ export default {
       if (!audioBuffer?.length) {
         return msg.reply('《✧》 El audio vino vacío.')
       }
+      // MP3 muy pequenos suelen ser basura/error de la API
+      if (audioBuffer.length < 50 * 1024) {
+        return msg.reply(`《✧》 No envié el audio: el archivo es demasiado pequeno (${(audioBuffer.length/1024).toFixed(1)} KB), parece incompleto. Prueba otro enlace.`)
+      }
 
       const fileName = (got.fileName || `${title}.mp3`).replace(/[^\w\s.-]/g, '').slice(0, 80) || 'audio.mp3'
 
