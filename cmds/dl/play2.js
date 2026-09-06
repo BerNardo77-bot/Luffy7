@@ -12,6 +12,29 @@ const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 const MAX_SEND_BYTES = 64 * 1024 * 1024
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
 
+function parseDurationToSeconds(ts) {
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts
+  if (!ts || typeof ts !== 'string') return 0
+  const parts = ts.split(':').map(n => Number(n))
+  if (parts.some(n => !Number.isFinite(n))) return 0
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  if (parts.length === 1) return parts[0]
+  return 0
+}
+
+function isBadMedia({ hasAudio, durationSec, expectedSec }) {
+  if (!hasAudio) return 'sin audio'
+  if (expectedSec >= 120 && durationSec > 0 && durationSec < expectedSec * 0.5) {
+    return `incompleto (${Math.round(durationSec)}s de ~${Math.round(expectedSec)}s)`
+  }
+  if (expectedSec >= 600 && durationSec > 0 && durationSec < 180) {
+    return `parece un clip corto (${Math.round(durationSec)}s), no el video completo`
+  }
+  return null
+}
+
+
 function getApiKey() {
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
   if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
@@ -293,21 +316,29 @@ export default {
         await msg.reply(`《✧》 Pesa ${mb(videoBuffer.length)} MB. Comprimiendo sin quitar el audio…`)
       }
 
+      const expectedSec = Number(videoInfo.seconds) || parseDurationToSeconds(duration)
       const prepared = await prepareForWhatsApp(videoBuffer, `${Date.now()}`, { forceCompress: needCompress })
       videoBuffer = prepared.buffer
 
-      if (!prepared.hasAudio) {
-        await msg.reply('《✧》 Aviso: la fuente vino sin pista de audio. Prueba otra calidad con el mismo link o usa /play para el audio.')
-      }
-      if (prepared.sourceDuration && prepared.duration && prepared.duration < prepared.sourceDuration * 0.5) {
-        await msg.reply(`《✧》 Aviso: duración corta (${prepared.duration.toFixed(1)}s vs ${prepared.sourceDuration.toFixed(1)}s). Reintentando…`)
+      const dur = prepared.duration || prepared.sourceDuration || 0
+      const bad = isBadMedia({
+        hasAudio: prepared.hasAudio,
+        durationSec: dur,
+        expectedSec
+      })
+      if (bad) {
+        return msg.reply(
+          `《✧》 No envié el archivo: la fuente salió *${bad}*.\n` +
+          `YouTube indica ~${expectedSec ? Math.round(expectedSec) + 's' : 'desconocido'}; el archivo trae ~${Math.round(dur)}s.\n` +
+          `Prueba otro enlace (oficial/trailer) o /play para audio.\n🔗 ${url}`
+        )
       }
 
       if (videoBuffer.length > MAX_SEND_BYTES) {
         return msg.reply(`《✧》 Aun comprimido pesa ${mb(videoBuffer.length)} MB y WhatsApp no lo acepta (~64 MB).\n🔗 ${dlUrl}`)
       }
 
-      const meta = `${title}\n(${mb(videoBuffer.length)} MB${prepared.duration ? ` · ${prepared.duration.toFixed(0)}s` : ''}${prepared.hasAudio ? ' · con audio' : ' · sin audio'})`
+      const meta = `${title}\n(${mb(videoBuffer.length)} MB · ${Math.round(dur)}s · con audio)`
 
       try {
         await sock.sendMessage(msg.chat, {
