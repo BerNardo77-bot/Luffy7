@@ -5,11 +5,9 @@ import fetch from 'node-fetch';
 
 const obtenerImagen = async (keyword, name = '') => {
   const endpoints = ["safebooru", "gelbooru", "danbooru"];
+  const FALLBACK_KEY = 'LUFFY-FIX67';
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim();
-  if (!key || key === 'TU-API-KEY' || key === 'undefined') {
-    key = 'LUFFY-FIX67';
-    console.error('[rw] Usando API key fallback LUFFY-FIX67 (settings.js no tenía key válida)');
-  }
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY;
 
   const variants = [];
   const add = (k) => {
@@ -17,39 +15,45 @@ const obtenerImagen = async (keyword, name = '') => {
     if (v && !variants.includes(v)) variants.push(v);
   };
   add(keyword);
-  // sticky_fingers_(stand) -> sticky_fingers
   if (keyword && keyword.includes('(')) add(keyword.split('(')[0].replace(/_+$/, ''));
-  // name -> sticky_fingers
-  if (name) add(name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
+  if (name) add(String(name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
 
-  let saw401 = false;
-  for (const kw of variants) {
+  const tryFetch = async (kw, useKey) => {
     const q = encodeURIComponent(kw);
     for (const endpoint of endpoints) {
       try {
-        const url = `${api.url}/nsfw/${endpoint}?keyword=${q}&key=${key}`;
+        const url = `${api.url}/nsfw/${endpoint}?keyword=${q}&key=${useKey}`;
         const res = await fetch(url);
-        if (res.status === 401) {
-          saw401 = true;
-          throw new Error(`${endpoint} HTTP 401`);
-        }
+        if (res.status === 401) throw new Error(`${endpoint} HTTP 401`);
         if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
-
         const ctype = (res.headers.get('content-type') || '').toLowerCase();
         if (ctype.includes('application/json')) {
           const j = await res.json();
           throw new Error(j?.message || `${endpoint} JSON sin imagen`);
         }
-
         const buffer = await res.arrayBuffer();
         if (buffer.byteLength > 0) return Buffer.from(buffer);
       } catch (err) {
         console.error(`Error en ${endpoint} (${kw}):`, err.message);
+        if (String(err.message).includes('401')) return { error: 'api_key' };
       }
     }
+    return null;
+  };
+
+  for (const kw of variants) {
+    let got = await tryFetch(kw, key);
+    if (got && !got.error) return got;
+    // Si 401 o fallo, reintenta con la key conocida del bot
+    if (key !== FALLBACK_KEY) {
+      console.error('[rw] Reintentando imagen con key fallback LUFFY-FIX67');
+      got = await tryFetch(kw, FALLBACK_KEY);
+      if (got && !got.error) return got;
+    }
+    if (got?.error === 'api_key') continue;
   }
 
-  return saw401 ? { error: 'api_key' } : null;
+  return null;
 };
 
 const obtenerPersonajes = () => {
