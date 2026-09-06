@@ -15,12 +15,12 @@ Proyecto independiente; no afiliado a WhatsApp Inc.
 | `/tiktokmp3` | `/ttaudio` | TikTok audio |
 | `/instagram` | `/ig`, `/reel` | Instagram |
 | `/facebook` | `/fb` | Facebook |
-| `/spotify@ | `/sp` | Spotify |
+| `/spotify` | `/sp` | Spotify |
 | `/mediafire` | `/mf` | MediaFire |
 
 API in `settings.js` (`global.api`): key por defecto `LUFFY-FIX67`.
 
-## Instalacion Termux (pruebado)
+## Instalacion Termux (probado)
 
 ```bash
 pkg update && pkg upgrade -y
