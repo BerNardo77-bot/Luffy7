@@ -5,12 +5,19 @@ import fetch from 'node-fetch';
 
 const obtenerImagen = async (keyword) => {
   const endpoints = ["safebooru", "gelbooru", "danbooru"];
+  const q = encodeURIComponent(keyword || '');
 
   for (const endpoint of endpoints) {
     try {
-      const url = `${api.url}/nsfw/${endpoint}?keyword=${keyword}`;
+      const url = `${api.url}/nsfw/${endpoint}?keyword=${q}&key=${api.key}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
+
+      const ctype = (res.headers.get('content-type') || '').toLowerCase();
+      if (ctype.includes('application/json')) {
+        const j = await res.json();
+        throw new Error(j?.message || `${endpoint} JSON sin imagen`);
+      }
 
       const buffer = await res.arrayBuffer();
 
