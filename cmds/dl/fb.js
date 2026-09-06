@@ -52,7 +52,8 @@ export default {
         )
       }
     } catch (e) {
-      await msg.reply(msgglobal)
+      console.error('[fb]', e)
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => msg.reply(msgglobal))
     }
   }
 }
