@@ -3,6 +3,7 @@ import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
+const MAX_BYTES = 50 * 1024 * 1024 // ~50MB seguro para WhatsApp/Termux
 
 function getApiKey() {
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
@@ -26,12 +27,10 @@ async function descargarMp4(videoUrl, titleQuery, key) {
   const queries = []
   const add = (q) => { if (q && !queries.includes(q)) queries.push(q) }
   add(videoUrl)
-  // youtu.be short
   const idMatch = String(videoUrl).match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([a-zA-Z0-9_-]{11})/)
   if (idMatch) {
     add(`https://youtu.be/${idMatch[1]}`)
     add(`https://www.youtube.com/watch?v=${idMatch[1]}`)
-    add(idMatch[1])
   }
   if (titleQuery) add(titleQuery)
 
@@ -42,22 +41,22 @@ async function descargarMp4(videoUrl, titleQuery, key) {
 
   for (const useKey of keys) {
     for (const q of queries) {
-      // Endpoint principal
-      try {
-        const apiUrl = `${base}/dl/youtubeplayv2?query=${encodeURIComponent(q)}&type=mp4&quality=auto&key=${useKey}`
-        const res = await fetchJson(apiUrl)
-        if (res?.status && res?.data?.dl) return res
-        lastMsg = res?.message || res?.error || lastMsg
-      } catch (e) {
-        lastMsg = e.message || lastMsg
+      for (const quality of ['360', '480', 'auto', '720']) {
+        try {
+          const apiUrl = `${base}/dl/youtubeplayv2?query=${encodeURIComponent(q)}&type=mp4&quality=${quality}&key=${useKey}`
+          const res = await fetchJson(apiUrl)
+          if (res?.status && res?.data?.dl) return res
+          lastMsg = res?.message || res?.error || lastMsg
+        } catch (e) {
+          lastMsg = e.message || lastMsg
+        }
       }
-
-      // Endpoint alterno
       try {
-        const alt = `${base}/dl/ytmp4?url=${encodeURIComponent(q.startsWith('http') ? q : (idMatch ? `https://youtu.be/${idMatch[1]}` : q))}&key=${useKey}`
+        const altUrl = idMatch ? `https://youtu.be/${idMatch[1]}` : (q.startsWith('http') ? q : videoUrl)
+        const alt = `${base}/dl/ytmp4?url=${encodeURIComponent(altUrl)}&key=${useKey}`
         const res2 = await fetchJson(alt)
-        if (res2?.status && (res2?.data?.dl || res2?.result?.dl || res2?.dl)) {
-          const dl = res2.data?.dl || res2.result?.dl || res2.dl
+        const dl = res2?.data?.dl || res2?.result?.dl || res2?.dl
+        if (res2?.status && dl) {
           return { status: true, data: { ...(res2.data || {}), dl, title: res2.data?.title || titleQuery } }
         }
         lastMsg = res2?.message || res2?.error || lastMsg
@@ -118,13 +117,43 @@ export default {
         return msg.reply(`《✧》 Falló la descarga.\n📌 Razón de la API: ${motivo}\n\nPrueba con un enlace directo:\n/ytvideo https://youtu.be/ID`)
       }
 
-      const mensaje = {
-        video: { url: res.data.dl },
-        fileName: `${res.data?.title || title || 'video'}.mp4`,
-        mimetype: 'video/mp4'
+      const dlUrl = res.data.dl
+      const fileName = `${(res.data?.title || title || 'video').replace(/[^\w\s.-]/g, '').slice(0, 60) || 'video'}.mp4`
+
+      // Bajar el archivo y mandarlo como buffer (WhatsApp a menudo no abre las URLs de la API)
+      let videoBuffer
+      try {
+        videoBuffer = await getBuffer(dlUrl)
+      } catch (e) {
+        console.error('[ytvideo] getBuffer', e)
+        return msg.reply('《✧》 Se obtuvo el enlace, pero no se pudo descargar el archivo de video. Intenta otro video más corto.')
       }
 
-      await sock.sendMessage(msg.chat, mensaje, { quoted: msg })
+      if (!videoBuffer || !videoBuffer.length) {
+        return msg.reply('《✧》 El archivo de video vino vacío. Prueba otro enlace.')
+      }
+
+      if (videoBuffer.length > MAX_BYTES) {
+        return msg.reply(`《✧》 El video pesa ${(videoBuffer.length / 1024 / 1024).toFixed(1)} MB y es demasiado grande para enviarlo por WhatsApp. Prueba uno más corto o usa /play (audio).`)
+      }
+
+      try {
+        await sock.sendMessage(msg.chat, {
+          video: videoBuffer,
+          fileName,
+          mimetype: 'video/mp4',
+          caption: title
+        }, { quoted: msg })
+      } catch (e) {
+        console.error('[ytvideo] send video', e)
+        // Fallback: documento
+        await sock.sendMessage(msg.chat, {
+          document: videoBuffer,
+          fileName,
+          mimetype: 'video/mp4',
+          caption: title
+        }, { quoted: msg })
+      }
 
     } catch (e) {
       console.error('[ytvideo]', e)
