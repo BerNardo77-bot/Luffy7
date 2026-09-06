@@ -3,33 +3,53 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 
-const obtenerImagen = async (keyword) => {
+const obtenerImagen = async (keyword, name = '') => {
   const endpoints = ["safebooru", "gelbooru", "danbooru"];
-  const q = encodeURIComponent(keyword || '');
+  const key = (api?.key || '').trim();
+  if (!key || key === 'TU-API-KEY') {
+    console.error('[rw] API key inválida o placeholder en settings.js');
+    return { error: 'api_key' };
+  }
 
-  for (const endpoint of endpoints) {
-    try {
-      const url = `${api.url}/nsfw/${endpoint}?keyword=${q}&key=${api.key}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
+  const variants = [];
+  const add = (k) => {
+    const v = (k || '').trim();
+    if (v && !variants.includes(v)) variants.push(v);
+  };
+  add(keyword);
+  // sticky_fingers_(stand) -> sticky_fingers
+  if (keyword && keyword.includes('(')) add(keyword.split('(')[0].replace(/_+$/, ''));
+  // name -> sticky_fingers
+  if (name) add(name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
 
-      const ctype = (res.headers.get('content-type') || '').toLowerCase();
-      if (ctype.includes('application/json')) {
-        const j = await res.json();
-        throw new Error(j?.message || `${endpoint} JSON sin imagen`);
+  let saw401 = false;
+  for (const kw of variants) {
+    const q = encodeURIComponent(kw);
+    for (const endpoint of endpoints) {
+      try {
+        const url = `${api.url}/nsfw/${endpoint}?keyword=${q}&key=${key}`;
+        const res = await fetch(url);
+        if (res.status === 401) {
+          saw401 = true;
+          throw new Error(`${endpoint} HTTP 401`);
+        }
+        if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
+
+        const ctype = (res.headers.get('content-type') || '').toLowerCase();
+        if (ctype.includes('application/json')) {
+          const j = await res.json();
+          throw new Error(j?.message || `${endpoint} JSON sin imagen`);
+        }
+
+        const buffer = await res.arrayBuffer();
+        if (buffer.byteLength > 0) return Buffer.from(buffer);
+      } catch (err) {
+        console.error(`Error en ${endpoint} (${kw}):`, err.message);
       }
-
-      const buffer = await res.arrayBuffer();
-
-      if (buffer.byteLength > 0) {
-        return Buffer.from(buffer);
-      }
-    } catch (err) {
-      console.error(`Error en ${endpoint}:`, err.message);
     }
   }
 
-  return null;
+  return saw401 ? { error: 'api_key' } : null;
 };
 
 const obtenerPersonajes = () => {
@@ -110,8 +130,11 @@ ${dev}`
 
 const imagen = await obtenerImagen(personaje.keyword, personaje.name);
 
-if (!imagen) {
+if (!imagen || imagen.error) {
   await db.updateChatUser(chatId, userId, 'rwCooldown', 0)
+  if (imagen?.error === 'api_key') {
+    return msg.reply('✎ API key inválida. En Termux edita settings.js y pon key: \'LUFFY-FIX67\' luego reinicia el bot.');
+  }
   return msg.reply(`✎ No se pudo obtener una imagen para *${personaje.name}*. Prueba /rw de nuevo.`);
 }
 
