@@ -7,7 +7,7 @@ global.owner = []
 global.api = {
   url: 'https://api.alyacore.xyz',
   // Cambia esta key por la tuya si la API lo requiere
-  key: process.env.ALYACORE_API_KEY || 'TU-API-KEY'
+  key: 'LUFFY-FIX67'
 }
 
 // Opcional para NSFW Rule34 (no dejes claves reales en el repo)
