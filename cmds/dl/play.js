@@ -52,7 +52,8 @@ export default {
 
       await sock.sendMessage(msg.chat, mensaje, { quoted: msg })
     } catch (e) {
-      await msg.reply(msgglobal) // Asegúrate de que 'msgglobal' esté definido en tu entorno
+      console.error('[play]', e)
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => msg.reply(msgglobal))
     }
   }
 }
