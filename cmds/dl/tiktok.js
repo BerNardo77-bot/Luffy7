@@ -2,7 +2,7 @@ import db from "#db"
 import fetch from 'node-fetch';
 
 export default {
-  command: ['tiktok', 'tt'],
+  command: ['tiktok', 'tt', 'tk', 'tiktokdl'],
   category: 'downloader',
   run: async ({ msg, sock, args, command }) => {
 
@@ -59,7 +59,12 @@ export default {
           await sock.sendMessage(msg.chat, { [type || 'video']: { url: dl }, caption }, { quoted: msg })
         }
       } catch (e) {
-        console.error('[tiktok]', e); await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => console.error('[tiktok]', e); msg.reply(`《✧》 Error: ${e?.message || e}`))
+        console.error('[tiktok]', e)
+        try {
+          await msg.reply(`《✧》 Error: ${e?.message || e}`)
+        } catch (e2) {
+          console.error('[tiktok] reply', e2)
+        }
       }
     } else {
       const query = args.filter(a => a !== '--mp3').join(" ")
