@@ -1,7 +1,10 @@
 import db from "#db"
-import fetch from 'node-fetch';
+import fetch from 'node-fetch'
 
-const captions = {      
+const FALLBACK_KEY = 'LUFFY-FIX67'
+const MAX_RETRIES = 3
+
+const captions = {
   anal: (from, to) => from === to ? 'se la metió en el ano.' : 'se la metió en el ano a',
   cum: (from, to) => from === to ? 'se vino dentro de... Omitiremos eso.' : 'se vino dentro de',
   undress: (from, to) => from === to ? 'se está quitando la ropa' : 'le está quitando la ropa a',
@@ -22,12 +25,12 @@ const captions = {
   handjob: (from, to) => from === to ? 'le da una paja a alguien con cariño' : 'le está haciendo una paja a',
   lickass: (from, to) => from === to ? 'saborea un culo sin detenerse' : 'le está lamiendo el culo a',
   lickdick: (from, to) => from === to ? 'chupa con ganas un pene' : 'se la mete todo en la boca para'
-};
+}
 
-const symbols = ['(⁠◠⁠‿⁠◕⁠)', '˃͈◡˂͈', '૮(˶ᵔᵕᵔ˶)ა', '(づ｡◕‿‿◕｡)づ', '(✿◡‿◡)', '(꒪⌓꒪)', '(✿✪‿✪｡)', '(*≧ω≦)', '(✧ω◕)', '˃ 𖥦 ˂', '(⌒‿⌒)', '(¬‿¬)', '(✧ω✧)',  '✿(◕ ‿◕)✿',  'ʕ•́ᴥ•̀ʔっ', '(ㅇㅅㅇ❀)',  '(∩︵∩)',  '(✪ω✪)',  '(✯◕‿◕✯)', '(•̀ᴗ•́)و ̑̑'];
+const symbols = ['(⁠◠⁠‿⁠◕⁠)', '˃͈◡˂͈', '૮(˶ᵔᵕᵔ˶)ა', '(づ｡◕‿‿◕｡)づ', '(✿◡‿◡)', '(꒪⌓꒪)', '(✿✪‿✪｡)', '(*≧ω≦)', '(✧ω◕)', '˃ 𖥦 ˂', '(⌒‿⌒)', '(¬‿¬)', '(✧ω✧)',  '✿(◕ ‿◕)✿',  'ʕ•́ᴥ•̀ʔっ', '(ㅇㅅㅇ❀)',  '(∩︵∩)',  '(✪ω✪)',  '(✯◕‿◕✯)', '(•̀ᴗ•́)و ̑̑']
 
 function getRandomSymbol() {
-  return symbols[Math.floor(Math.random() * symbols.length)];
+  return symbols[Math.floor(Math.random() * symbols.length)]
 }
 
 const commandAliases = {
@@ -51,13 +54,81 @@ const commandAliases = {
   handjob: ['handjob'],
   lickass: ['lickass', 'lamercullo'],
   lickdick: ['lickdick', 'lamerpolla']
-};
+}
 
 function resolveCommand(cmd) {
   for (const [base, aliases] of Object.entries(commandAliases)) {
-    if (aliases.includes(cmd)) return base;
+    if (aliases.includes(cmd)) return base
   }
-  return cmd;
+  return cmd
+}
+
+function getKey() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  return key
+}
+
+function getBase() {
+  return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+function isTransient(err) {
+  const code = err?.code || err?.errno || ''
+  const msg = String(err?.message || err || '')
+  return (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    code === 'EAI_AGAIN' ||
+    /ECONNRESET|ETIMEDOUT|socket hang up|network/i.test(msg)
+  )
+}
+
+async function fetchInteraction(inter) {
+  const base = getBase()
+  const keys = [getKey()]
+  if (keys[0] !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+
+  let lastErr = null
+  for (const key of keys) {
+    const url = `${base}/nsfw/interaction?inter=${encodeURIComponent(inter)}&key=${encodeURIComponent(key)}`
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+            Accept: 'application/json'
+          },
+          timeout: 45000
+        })
+        if (!response.ok) {
+          lastErr = new Error(`HTTP ${response.status}`)
+          if (response.status >= 500 && attempt < MAX_RETRIES) {
+            await sleep(800 * attempt)
+            continue
+          }
+          continue
+        }
+        const json = await response.json().catch(() => ({}))
+        if (json?.status && json?.result) return json
+        lastErr = new Error(json?.message || 'sin resultado')
+      } catch (e) {
+        lastErr = e
+        if (isTransient(e) && attempt < MAX_RETRIES) {
+          console.error(`[nsfw/inter] reintento ${attempt}/${MAX_RETRIES}`, e.code || e.message)
+          await sleep(900 * attempt)
+          continue
+        }
+      }
+    }
+  }
+  throw lastErr || new Error('API NSFW no respondio')
 }
 
 export default {
@@ -69,37 +140,32 @@ export default {
   ],
   category: 'nsfw',
   run: async ({ msg, sock, args, command, text, usedPrefix: prefix }) => {
-    const chat = await db.getChat(msg.chat);
-    if (!chat.nsfw) return msg.reply(mess.nsfw);
+    const chat = await db.getChat(msg.chat)
+    if (!chat.nsfw) return msg.reply(mess.nsfw)
 
-    const baseCommand = resolveCommand(command);
-    if (!captions[baseCommand]) return;
+    const baseCommand = resolveCommand(command)
+    if (!captions[baseCommand]) return
 
-    let who;
-    const texto = msg.mentionedJid;
+    let who
+    const texto = msg.mentionedJid
     if (msg.isGroup) {
-      who = texto.length > 0 ? texto[0] : msg.quoted ? msg.quoted.sender : msg.sender;
+      who = texto.length > 0 ? texto[0] : msg.quoted ? msg.quoted.sender : msg.sender
     } else {
-      who = msg.quoted ? msg.quoted.sender : msg.sender;
+      who = msg.quoted ? msg.quoted.sender : msg.sender
     }
 
-    const user = await db.getUser(who);
-    const fromName = msg.pushName || 'Alguien';
-    const toName = user.name || 'alguien';
+    const user = await db.getUser(who)
+    const fromName = msg.pushName || 'Alguien'
+    const toName = user.name || 'alguien'
 
-    const captionText = captions[baseCommand](fromName, toName);
+    const captionText = captions[baseCommand](fromName, toName)
     const caption =
       who !== msg.sender
         ? `@${msg.sender.split('@')[0]} ${captionText} @${who.split('@')[0]} ${getRandomSymbol()}.`
-        : `${fromName} ${captionText} ${getRandomSymbol()}.`;
+        : `${fromName} ${captionText} ${getRandomSymbol()}.`
 
     try {
-      const response = await fetch(`${api.url}/nsfw/interaction?inter=${baseCommand}&key=${api.key}`);
-      const json = await response.json();
-      if (!json?.status || !json?.result) {
-        return msg.reply(`《✧》 API NSFW: ${json?.message || 'sin resultado'}`);
-      }
-
+      const json = await fetchInteraction(baseCommand)
       await sock.sendMessage(
         msg.chat,
         {
@@ -109,10 +175,13 @@ export default {
           mentions: [who, msg.sender]
         },
         { quoted: msg }
-      );
+      )
     } catch (e) {
-      console.error('[nsfw/inter]', e);
-      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => msg.reply(msgglobal));
+      console.error('[nsfw/inter]', e)
+      const hint = isTransient(e)
+        ? '\n📌 La API se cayo un momento (red). Proba de nuevo en unos segundos.'
+        : ''
+      await msg.reply(`《✧》 Error NSFW: ${e?.message || e}${hint}`).catch(() => msg.reply(msgglobal))
     }
   }
-};
+}
