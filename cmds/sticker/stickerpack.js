@@ -1,18 +1,29 @@
 import db from "#db"
 import axios from 'axios';
-import sharp from 'sharp';
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const toBuffer = async (url) => Buffer.from((await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 })).data);
-const key = api.key // Se asume que 'api' está definido globalmente en tu proyecto
+const FALLBACK_KEY = 'LUFFY-FIX67'
+function getKey() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  return key
+}
+function getBase() {
+  return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+}
+async function getSharp() {
+  const mod = await import('sharp')
+  return mod.default
+}
 
 const toWebp = async (buffer, isAnimated = false) => {
   if (isAnimated) {
-    return await sharp(buffer, { animated: true }).resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 50, loop: 0 }).toBuffer();
+    return await (await getSharp())(buffer, { animated: true }).resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 50, loop: 0 }).toBuffer();
   }
-  let webp = await sharp(buffer).resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 50 }).toBuffer();
+  let webp = await (await getSharp())(buffer).resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 50 }).toBuffer();
   if (webp.length > 100 * 1024) {
-    webp = await sharp(buffer).resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 40 }).toBuffer();
+    webp = await (await getSharp())(buffer).resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 40 }).toBuffer();
   }
   return webp;
 };
@@ -23,7 +34,7 @@ const isStickerUrl = (url) => {
 
 const searchPacks = async (query, attempt = 1) => {
   try {
-    const { data } = await axios.get(`${api.url}/stickerly/search`, { params: { query, key }, timeout: 10000 });
+    const { data } = await axios.get(`${getBase()}/stickerly/search`, { params: { query, key: getKey() }, timeout: 10000 });
     return data;
   } catch (e) {
     if (e.response?.status === 429 && attempt <= 3) { await delay((e.response.headers['retry-after'] || 5) * 1000); return searchPacks(query, attempt + 1); }
@@ -33,7 +44,7 @@ const searchPacks = async (query, attempt = 1) => {
 
 const downloadPack = async (url, attempt = 1) => {
   try {
-    const { data } = await axios.get(`${api.url}/stickerly/detail`, { params: { url, key }, timeout: 10000 });
+    const { data } = await axios.get(`${getBase()}/stickerly/detail`, { params: { url, key: getKey() }, timeout: 10000 });
     return data;
   } catch (e) {
     if (e.response?.status === 429 && attempt <= 3) { await delay((e.response.headers['retry-after'] || 5) * 1000); return downloadPack(url, attempt + 1); }
@@ -43,9 +54,10 @@ const downloadPack = async (url, attempt = 1) => {
 };
 
 const filterRelevantPacks = (packs, query) => {
-  const searchTerm = query.toLowerCase().trim();
-  if (!searchTerm) return packs;
-  return packs.filter(pack => {
+  const list = Array.isArray(packs) ? packs : [];
+  const searchTerm = String(query || '').toLowerCase().trim();
+  if (!searchTerm) return list;
+  return list.filter(pack => {
     const packName = (pack.name || '').toLowerCase();
     return packName.includes(searchTerm);
   });
@@ -59,7 +71,8 @@ export default {
       // Reemplazo de la función multi-idioma por texto directo
       if (!text) return sock.reply(msg.chat, `⚓ Ingresa el nombre de un paquete de stickers o un enlace de sticker.ly.\nEjemplo: ${prefix}stickerpack luffy`, msg);
       
-      const name = await db.getUser(msg.sender).name || msg.sender.split('@')[0];
+      const _u = await db.getUser(msg.sender);
+      const name = _u?.name || msg.sender.split('@')[0];
       let packData;
       const stickerMatch = text.match(/(?:sticker\.ly\/s\/)([a-zA-Z0-9]+)(?:\s|$)/);
       const url = stickerMatch ? 'https://sticker.ly/s/' + stickerMatch[1] : (isStickerUrl(text) ? text : null);
@@ -113,9 +126,9 @@ export default {
       const selectedStickers = stickers.slice(0, MAX_STICKERS);
       const [cover, stickerResults] = await Promise.all([(async () => {
           try {
-            return await sharp(await toBuffer(thumbnailUrl)).resize(96, 96, { fit: 'cover' }).webp({ quality: 60 }).toBuffer();
+            return await (await getSharp())(await toBuffer(thumbnailUrl)).resize(96, 96, { fit: 'cover' }).webp({ quality: 60 }).toBuffer();
           } catch {
-            return await sharp({ create: { width: 96, height: 96, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } }}).webp().toBuffer();
+            return await (await getSharp())({ create: { width: 96, height: 96, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } }}).webp().toBuffer();
           }
         })(),
         Promise.all(selectedStickers.map(async (s) => {
