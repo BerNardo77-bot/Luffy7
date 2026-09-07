@@ -1,3 +1,19 @@
+async function fetchFollow(url, opts = {}, maxRedirects = 8) {
+  let current = url
+  for (let i = 0; i <= maxRedirects; i++) {
+    const res = await fetch(current, { ...opts, redirect: 'manual' })
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const loc = res.headers.get('location')
+      if (!loc) throw new Error(`HTTP ${res.status} sin Location`)
+      try { if (res.body?.cancel) res.body.cancel() } catch {}
+      current = new URL(loc, current).href
+      continue
+    }
+    return res
+  }
+  throw new Error('Demasiados redirects (302)')
+}
+
 import ytsearch from 'yt-search'
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
@@ -23,7 +39,7 @@ async function fetchJson(url) {
 }
 
 async function downloadBuffer(url) {
-  const res = await fetch(url, {
+  const res = await fetchFollow(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
       Accept: '*/*'
