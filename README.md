@@ -11,7 +11,7 @@ Proyecto independiente; no afiliado a WhatsApp Inc.
 |--------|--------|-----|
 | `/play` | `/mp3`, `/ytmp3` | YouTube audio |
 | `/play2` | `/mp4`, `/ytmp4` | YouTube video |
-| `/tiktok` | `/tt` | TikTok |
+| `/tiktok` | `/tt`, `/tk`, `/tiktokdl` | TikTok |
 | `/tiktokmp3` | `/ttaudio` | TikTok audio |
 | `/instagram` | `/ig`, `/reel` | Instagram |
 | `/facebook` | `/fb` | Facebook |
@@ -87,3 +87,15 @@ Incluye en main:
 - API key por defecto LUFFY-FIX67 en settings.js
 
 Telegram hermano: https://github.com/BerNardo77-bot/Luffy7-Telegram
+
+---
+
+## Estado guardado (v1.1.1)
+
+En `main`:
+
+- Fix: `cmds/dl/tiktok.js` ya carga (sintaxis del `catch` rota impedía registrar el comando)
+- Aliases TikTok: `#tiktok` `#tt` `#tk` `#tiktokdl`
+- Termux: `git fetch && git reset --hard origin/main` luego reiniciar
+
+Confirmado por el usuario: `#tt` funcionó.
