@@ -32,7 +32,7 @@ npm install
 ```
 
 `package.json` incluye `sharp` y `@img/sharp-wasm32` (stickers en android-arm64).
-Si stickers fallan: `npm install sharp @eimg/sharp-wasm32
+Si stickers fallan: `npm install sharp sharp-wasm32 (ver v1.1.0)
 
 ### Configurar
 
@@ -73,3 +73,17 @@ Ver tambien `TERMUX.md`.
 ## Licencia
 
 MIT — credito al proyecto original.
+
+---
+
+## Estado guardado (v1.1.0)
+
+Incluye en main:
+
+- package.json: sharp-wasm32 como dependencia opcional (Termux arm64)
+- stickerpack.js: carga diferida de sharp
+- nsfw/inter.js: reintentos ante cortes de red ECONNRESET
+- mejoras de descargas YouTube y XVideos
+- API key por defecto LUFFY-FIX67 en settings.js
+
+Telegram hermano: https://github.com/BerNardo77-bot/Luffy7-Telegram
