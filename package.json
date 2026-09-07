@@ -1,7 +1,7 @@
 {
   "name": "luffy7",
-  "version": "1.0.0",
-  "description": "Monkey D. Luffy Bot MD (Luffy7) \u2014 WhatsApp bot con todas las descargas activadas. Basado en nene504273/Monkey-D-luffy-Bot-MD.",
+  "version": "1.1.0",
+  "description": "Luffy7 WhatsApp bot Baileys: descargas NSFW gacha stickers, Termux arm64 ready",
   "main": "index.js",
   "type": "module",
   "scripts": {
