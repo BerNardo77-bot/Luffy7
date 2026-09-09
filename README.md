@@ -104,3 +104,8 @@ Confirmado por el usuario: `#tt` funcionó.
 
 Guia desde cero en TERMUX.md.
 Si node o ffmpeg fallan con cannot locate symbol: instalar libc++ y openssl, cerrar Termux, y reintentar.
+
+## Estado guardado (v1.1.4)
+
+#ytvideo usa yt-dlp con node como runtime de YouTube (build 116).
+Confirmado en Termux. No uses curl a raw.githubusercontent (429). Actualiza con git fetch y git checkout origin/main -- cmds/dl/play2.js
