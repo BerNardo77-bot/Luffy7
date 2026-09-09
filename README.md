@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.5** — #menu: si el CDN del banner falla (429), manda el menu en texto.
+
 Bot de WhatsApp (Node.js + Baileys) para **BerNardo77-bot/Luffy7**.
 Basado en [nene504273/Monkey-D-luffy-Bot-MD](https://github.com/nene504273/Monkey-D-luffy-Bot-MD).
 

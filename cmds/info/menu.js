@@ -4,7 +4,7 @@ import { commands } from '../../lib/system/comandos.js';
 
 const newsletterJid = '120363420846835529@newsletter';
 const newsletterName = '⿻̸̷᮫̼̼፝͠🥨᪲ 𝐋𝗎𝖿𝖿𝗒 𝐆͢𝖾𝖺⃜𝗋 𝟧 ׅ ࿔𔗨̶🌊';
-const banner = 'https://cdn.dev-ander.xyz/a/XmHm.jpg';
+const defaultBanner = 'https://cdn.dev-ander.xyz/a/XmHm.jpg';
 
 function clockString(ms) {
     const h = Math.floor(ms / 3600000);
@@ -21,7 +21,14 @@ export default {
         const uptime = clockString(Date.now() - (sock.uptime || Date.now()));
         const totalreg = Object.keys(await db.getUser()).length;
         const venezuelaTime = moment().tz('America/Caracas').format('HH:mm:ss');
-        const link = global.api?.url || banner;
+        const link = global.api?.url || defaultBanner;
+
+        let bannerUrl = defaultBanner;
+        try {
+            const botId = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+            const botSettings = await db.getSettings(botId);
+            if (botSettings?.banner) bannerUrl = botSettings.banner;
+        } catch {}
 
         const categories = {};
         for (const cmd of commands) {
@@ -86,11 +93,19 @@ export default {
             }
         };
 
-        // Enviamos la imagen directamente con el menú en la leyenda (caption)
-        await sock.sendMessage(msg.chat, {
-            image: { url: banner },
-            caption: menuText,
-            contextInfo
-        }, { quoted: msg });
+        // Banner: si el CDN falla (429), mandar solo texto
+        try {
+            await sock.sendMessage(msg.chat, {
+                image: { url: bannerUrl },
+                caption: menuText,
+                contextInfo
+            }, { quoted: msg });
+        } catch (e) {
+            console.error('[menu] banner falló, mando texto:', e?.output?.statusCode || e?.message || e);
+            await sock.sendMessage(msg.chat, {
+                text: menuText,
+                contextInfo
+            }, { quoted: msg });
+        }
     }
 };
