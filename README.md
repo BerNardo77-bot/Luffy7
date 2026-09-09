@@ -99,3 +99,8 @@ En `main`:
 - Termux: `git fetch && git reset --hard origin/main` luego reiniciar
 
 Confirmado por el usuario: `#tt` funcionó.
+
+## Estado guardado (Termux, v1.1.1)
+
+Guia desde cero en TERMUX.md.
+Si node o ffmpeg fallan con cannot locate symbol: instalar libc++ y openssl, cerrar Termux, y reintentar.
