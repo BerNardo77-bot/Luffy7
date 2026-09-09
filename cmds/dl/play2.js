@@ -97,16 +97,18 @@ async function downloadYoutubeWithYtDlp(videoUrl) {
   if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
   const base = path.join(TMP_DIR, "yt-" + Date.now())
   const outTpl = base + ".%(ext)s"
+  const common = ["--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]
   const attempts = [
-    ["yt-dlp", ["-f", "b[ext=mp4]/b", "--no-playlist", "-o", outTpl, videoUrl]],
-    ["python3", ["-m", "yt_dlp", "-f", "b[ext=mp4]/b", "--no-playlist", "-o", outTpl, videoUrl]]
+    ["yt-dlp", ["-f", "18/b", ...common]],
+    ["yt-dlp", ["-f", "b", "--extractor-args", "youtube:player_client=android", "--no-playlist", "-o", outTpl, videoUrl]],
+    ["python3", ["-m", "yt_dlp", "-f", "18/b", "--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]]
   ]
   let last = "yt-dlp no disponible"
   for (const pair of attempts) {
     const bin = pair[0]
     const args = pair[1]
     try {
-      await execFileAsync(bin, args, { timeout: 600000, maxBuffer: 10 * 1024 * 1024 })
+      await execFileAsync(bin, args, { timeout: 600000, maxBuffer: 20 * 1024 * 1024 })
       const hit = fs.readdirSync(TMP_DIR).find((f) => f.startsWith(path.basename(base)))
       if (!hit) throw new Error("yt-dlp no genero archivo")
       const file = path.join(TMP_DIR, hit)
@@ -114,8 +116,9 @@ async function downloadYoutubeWithYtDlp(videoUrl) {
       try { fs.unlinkSync(file) } catch {}
       return buf
     } catch (e) {
-      last = (e && e.message) || String(e)
-      console.error("[ytvideo] yt-dlp", last.slice(0, 180))
+      const errText = (e && (e.stderr || e.stdout || e.message)) || String(e)
+      last = String(errText)
+      console.error("[ytvideo] yt-dlp", last.slice(0, 400))
     }
   }
   throw new Error(last.slice(0, 180))
@@ -297,7 +300,7 @@ export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
   run: async ({ msg, sock, args }) => {
-    console.error('[ytvideo] build 115')
+    console.error('[ytvideo] build 116')
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar.')
