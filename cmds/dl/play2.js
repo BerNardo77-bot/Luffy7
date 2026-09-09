@@ -297,7 +297,7 @@ export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
   run: async ({ msg, sock, args }) => {
-    console.error('[ytvideo] build 113')
+    console.error('[ytvideo] build 114')
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar.')
@@ -366,7 +366,6 @@ export default {
       if (!videoBuffer?.length) return msg.reply("《✧》 No se pudo bajar el video. Revisa: yt-dlp --version")
       if (!isMp4(videoBuffer)) {
         return msg.reply("《✧》 No salio un MP4. Instala yt-dlp: pkg install yt-dlp -y")
-      }
       }
 
       const needCompress = videoBuffer.length > MAX_SEND_BYTES
