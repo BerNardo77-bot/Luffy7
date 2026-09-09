@@ -93,6 +93,34 @@ async function downloadVideoBuffer(url) {
   return buf
 }
 
+async function downloadYoutubeWithYtDlp(videoUrl) {
+  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
+  const base = path.join(TMP_DIR, "yt-" + Date.now())
+  const outTpl = base + ".%(ext)s"
+  const attempts = [
+    ["yt-dlp", ["-f", "b[height<=480]/b", "--merge-output-format", "mp4", "--no-playlist", "-o", outTpl, videoUrl]]
+  ]
+  let last = "yt-dlp no disponible"
+  for (const pair of attempts) {
+    const bin = pair[0]
+    const args = pair[1]
+    try {
+      await execFileAsync(bin, args, { timeout: 600000, maxBuffer: 10 * 1024 * 1024 })
+      const hit = fs.readdirSync(TMP_DIR).find((f) => f.startsWith(path.basename(base)))
+      if (!hit) throw new Error("yt-dlp no genero archivo")
+      const file = path.join(TMP_DIR, hit)
+      const buf = fs.readFileSync(file)
+      try { fs.unlinkSync(file) } catch {}
+      return buf
+    } catch (e) {
+      last = (e && e.message) || String(e)
+      console.error("[ytvideo] yt-dlp", last.slice(0, 180))
+    }
+  }
+  throw new Error(last.slice(0, 180))
+}
+
+
 function isMp4(buf) {
   if (!buf || buf.length < 12) return false
   return buf.slice(4, 8).toString() === 'ftyp'
@@ -320,11 +348,20 @@ export default {
       const safeName = `${(res.data?.title || title || 'video').replace(/[^\w\s.-]/g, '').slice(0, 40) || 'video'}`
       const fileName = `${safeName}.mp4`
 
-      await msg.reply('《✧》 Bajando el video completo…')
-      let videoBuffer = await downloadVideoBuffer(dlUrl)
-      if (!videoBuffer?.length) return msg.reply('《✧》 El archivo de video vino vacío.')
+      await msg.reply("《✧》 Bajando el video completo…")
+      let videoBuffer = null
+      try {
+        videoBuffer = await downloadVideoBuffer(dlUrl)
+      } catch (e) {
+        console.error("[ytvideo] http", e?.message || e)
+      }
+      if (!videoBuffer?.length || !isMp4(videoBuffer)) {
+        await msg.reply("《✧》 La API mando un redirect. Probando yt-dlp…")
+        videoBuffer = await downloadYoutubeWithYtDlp(url)
+      }
+      if (!videoBuffer?.length) return msg.reply("《✧》 El archivo de video vino vacio.")
       if (!isMp4(videoBuffer)) {
-        return msg.reply('《✧》 La API no devolvió un MP4 válido. Prueba otro video.')
+        return msg.reply("《✧》 No salio un MP4. Instala yt-dlp: pkg install yt-dlp -y")
       }
 
       const needCompress = videoBuffer.length > MAX_SEND_BYTES
