@@ -109,3 +109,15 @@ Si node o ffmpeg fallan con cannot locate symbol: instalar libc++ y openssl, cer
 
 #ytvideo usa yt-dlp con node como runtime de YouTube (build 116).
 Confirmado en Termux. No uses curl a raw.githubusercontent (429). Actualiza con git fetch y git checkout origin/main -- cmds/dl/play2.js
+
+## Estado guardado (grupo, v1.1.4)
+
+En el grupo, un admin activa los comandos que vienen apagados:
+
+#nsfw enable
+#gacha enable
+#rpg enable
+
+No activar antilink ni adminonly: esos bloquean.
+Spotify: dejar un espacio. Ejemplo: #sp https://open.spotify.com/track/...
+Confirmado por el usuario: los tres enable funcionan.
