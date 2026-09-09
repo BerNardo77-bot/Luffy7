@@ -51,11 +51,14 @@ export default {
         return msg.reply("No se pudo obtener el video para descargar.")
       }
 
-      const videoDownloadLink = downloadJson.resultado.result.download.low
+      const dl = downloadJson.resultado.result.download || {}
+      const videoDownloadLink = dl.high || dl.low || dl.url
+      if (!videoDownloadLink) return msg.reply("No se pudo obtener el video para descargar.")
 
       await sock.sendMessage(msg.chat, {
         video: { url: videoDownloadLink },
-        mimetype: "video/mp4"
+        mimetype: "video/mp4",
+        caption: dl.high ? 'XNXX (HD)' : 'XNXX'
       }, { quoted: msg })
 
     } catch (err) {

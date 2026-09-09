@@ -23,12 +23,19 @@ function mb(n) {
 
 function pickVideoCandidates(resultado) {
   const videos = resultado?.videos || resultado?.result?.videos || {}
-  // Preferir low para WhatsApp; high despues
   const list = []
-  if (videos.low) list.push({ quality: 'low', url: videos.low })
-  if (videos.high) list.push({ quality: 'high', url: videos.high })
-  const legacy = resultado?.result?.url || resultado?.url || resultado?.dl
-  if (legacy) list.push({ quality: 'legacy', url: legacy })
+  const seen = new Set()
+  const push = (quality, url) => {
+    if (!url || seen.has(url)) return
+    seen.add(url)
+    list.push({ quality, url })
+  }
+  // Alta calidad primero; low de respaldo
+  push('1080p', videos['1080p'] || videos['1080'])
+  push('high', videos.high)
+  push('720p', videos['720p'] || videos['720'])
+  push('low', videos.low)
+  push('legacy', resultado?.result?.url || resultado?.url || resultado?.dl)
   return list
 }
 
@@ -71,9 +78,9 @@ async function compressForWhatsApp(inputBuf, baseName) {
   fs.writeFileSync(inFile, inputBuf)
 
   const attempts = [
+    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-vf', "scale='min(720,iw)':-2", '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outFile],
     ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-vf', "scale='min(640,iw)':-2", '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', outFile],
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-vf', "scale='min(480,iw)':-2", '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', outFile],
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '35', '-vf', "scale='min(360,iw)':-2", '-c:a', 'aac', '-b:a', '48k', '-movflags', '+faststart', outFile]
+    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-vf', "scale='min(480,iw)':-2", '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', outFile]
   ]
 
   let best = null
@@ -161,7 +168,7 @@ export default {
       }
 
       try {
-        await sock.sendMessage(msg.chat, { video: buf, mimetype: "video/mp4" }, { quoted: msg })
+        await sock.sendMessage(msg.chat, { video: buf, mimetype: "video/mp4", caption: "XVideos (HD)" }, { quoted: msg })
       } catch (e) {
         console.error('[xvideos] send', e)
         await sock.sendMessage(msg.chat, { document: buf, mimetype: "video/mp4", fileName: "xvideos.mp4" }, { quoted: msg })

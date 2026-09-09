@@ -86,7 +86,7 @@ async function obtenerAudio(videoUrl, title, key) {
       }
       // tambien por query/title en youtubeplay si aplica audio
       try {
-        const apiUrl = `${base}/dl/youtubeplayv2?query=${encodeURIComponent(u)}&type=mp3&quality=128&key=${useKey}`
+        const apiUrl = `${base}/dl/youtubeplayv2?query=${encodeURIComponent(u)}&type=mp3&quality=320&key=${useKey}`
         const res = await fetchJson(apiUrl)
         const dl = res?.data?.dl
         if (res?.status && dl) {

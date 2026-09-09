@@ -98,10 +98,11 @@ async function downloadYoutubeWithYtDlp(videoUrl) {
   const base = path.join(TMP_DIR, "yt-" + Date.now())
   const outTpl = base + ".%(ext)s"
   const common = ["--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]
+  const fmtHd = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/best"
   const attempts = [
-    ["yt-dlp", ["-f", "18/b", ...common]],
-    ["yt-dlp", ["-f", "b", "--extractor-args", "youtube:player_client=android", "--no-playlist", "-o", outTpl, videoUrl]],
-    ["python3", ["-m", "yt_dlp", "-f", "18/b", "--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]]
+    ["yt-dlp", ["-f", fmtHd, "--merge-output-format", "mp4", ...common]],
+    ["yt-dlp", ["-f", "b[height<=1080]/b", "--extractor-args", "youtube:player_client=android", "--no-playlist", "-o", outTpl, videoUrl]],
+    ["python3", ["-m", "yt_dlp", "-f", fmtHd, "--merge-output-format", "mp4", "--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]]
   ]
   let last = "yt-dlp no disponible"
   for (const pair of attempts) {
@@ -258,7 +259,7 @@ async function descargarMp4(videoUrl, titleQuery, key) {
   if (key !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
   let lastMsg = 'No se encontraron resultados para la búsqueda.'
   // Preferir calidades con audio completo; 360 a veces viene mudo/corto
-  const qualities = ['720', '480', 'auto', '1080', '360']
+  const qualities = ['1080', '720', 'auto', '480', '360']
 
   for (const useKey of keys) {
     for (const q of queries) {
