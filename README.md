@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.7** — IA: #ia #gemini #deepseek #grok.
+
 Version **1.1.6** — descargas en alta calidad (YouTube 1080, XVideos/XNXX HD).
 
 Version **1.1.5** — #menu: si el CDN del banner falla (429), manda el menu en texto. Opcional: #setbanner con una foto tuya.
