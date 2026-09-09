@@ -297,7 +297,7 @@ export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
   run: async ({ msg, sock, args }) => {
-    console.error('[ytvideo] build 114')
+    console.error('[ytvideo] build 115')
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar.')
@@ -306,6 +306,27 @@ export default {
       const text = args.join(' ')
       const videoMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/|v\/))([a-zA-Z0-9_-]{11})/)
       const query = videoMatch ? 'https://youtu.be/' + videoMatch[1] : text
+
+      if (videoMatch) {
+        console.error('[ytvideo] usando yt-dlp')
+        await msg.reply('《✧》 Bajando el video con yt-dlp…')
+        try {
+          const early = await downloadYoutubeWithYtDlp(query)
+          if (early?.length && isMp4(early)) {
+            const fileName = 'video.mp4'
+            const meta = 'Video de YouTube'
+            await sock.sendMessage(msg.chat, {
+              video: early,
+              mimetype: 'video/mp4',
+              fileName,
+              caption: meta
+            }, { quoted: msg })
+            return
+          }
+        } catch (e) {
+          console.error('[ytvideo] yt-dlp fallo', e?.message || e)
+        }
+      }
 
       const search = await yts(query)
       const videoInfo = videoMatch
