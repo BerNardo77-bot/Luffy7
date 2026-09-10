@@ -152,11 +152,13 @@ export default {
         ? (videos.find(v => v.videoId === videoMatch[1]) || videos[0])
         : videos[0]
 
-      const { title, author, timestamp: duration, views, url, image } = video
+      const { title, author, timestamp: duration, views, url, image, videoId } = video
       const vistas = (views || 0).toLocaleString()
       const canal = author?.name || author || 'Desconocido'
-      let thumbBuffer = null
-      // Preferir URL remota; getBuffer a veces falla con 302 en thumbs
+      // Thumbs custom de yt a menudo fallan ("Failed to fetch stream"); usar hqdefault
+      const safeThumb = videoId
+        ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+        : ''
 
       const caption = `【　✿　】 _\`୨୧  Download\` ───── *${title}*_
 
@@ -165,19 +167,23 @@ export default {
 > _✰ \`Vistas\` ── ${vistas}_
 > _🜸 \`Enlace\` ── ${url}_
 
-> _──  ִ    ۟  *¡Enviando audio, por favor espera!*_`
+> _──  ִ    ۟  *¡Enviando audio, por favor espera!*_
+> 🎧 Audio calidad *320 kbps*`
 
-      if (image || thumbBuffer) {
-        await sock.sendMessage(
-          msg.chat,
-          {
-            image: thumbBuffer || { url: image },
-            caption: caption + '\n\n🎧 Audio calidad *320 kbps*'
-          },
-          { quoted: msg }
-        )
-      } else {
-        await msg.reply(caption + '\n\n🎧 Audio calidad *320 kbps*')
+      // Nunca tumbar #play por la miniatura
+      try {
+        if (safeThumb) {
+          await sock.sendMessage(
+            msg.chat,
+            { image: { url: safeThumb }, caption },
+            { quoted: msg }
+          )
+        } else {
+          await msg.reply(caption)
+        }
+      } catch (thumbErr) {
+        console.error('[play] thumb', thumbErr?.message || thumbErr)
+        await msg.reply(caption).catch(() => {})
       }
 
       const key = getApiKey()

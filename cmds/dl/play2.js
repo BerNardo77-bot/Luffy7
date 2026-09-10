@@ -405,10 +405,21 @@ export default {
 
 > _──  ִ    ۟  *Descargando video completo con audio…*_`
 
-      if (thumbBuffer || thumbUrl) {
-        await sock.sendMessage(msg.chat, { image: thumbBuffer || { url: thumbUrl }, caption }, { quoted: msg })
-      } else {
-        await msg.reply(caption)
+      try {
+        const id = videoInfo.videoId
+        const safeThumb = id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : thumbUrl
+        if (thumbBuffer || safeThumb) {
+          await sock.sendMessage(
+            msg.chat,
+            { image: thumbBuffer || { url: safeThumb }, caption },
+            { quoted: msg }
+          )
+        } else {
+          await msg.reply(caption)
+        }
+      } catch (thumbErr) {
+        console.error('[ytvideo] thumb', thumbErr?.message || thumbErr)
+        await msg.reply(caption).catch(() => {})
       }
 
       const key = getApiKey()
