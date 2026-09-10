@@ -405,8 +405,8 @@ export default {
 
 > _──  ִ    ۟  *Descargando video completo con audio…*_`
 
-      if (thumbBuffer) {
-        await sock.sendMessage(msg.chat, { image: thumbBuffer || (thumbUrl ? { url: thumbUrl } : undefined), caption }, { quoted: msg })
+      if (thumbBuffer || thumbUrl) {
+        await sock.sendMessage(msg.chat, { image: thumbBuffer || { url: thumbUrl }, caption }, { quoted: msg })
       } else {
         await msg.reply(caption)
       }
