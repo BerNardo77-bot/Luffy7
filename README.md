@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.10** — fix #imagen getChat (TypeError .catch).
+
 Version **1.1.9** — search: #ytsearch (API Alyacore, sin 302), #ttsearch #wiki #pin #imagen #apk #ams.
 
 Version **1.1.8** — `#nano` / `#nanobanana` (editar imagen con prompt NanoBanana).

@@ -23,7 +23,8 @@ export default {
     if (!text) return msg.reply('✎ Uso: #imagen <texto>')
 
     const banned = ['xxx', 'porn', 'porno', 'xnxx', 'xvideos', 'onlyfans', 'hentai']
-    const nsfwOn = (await db.getChat(msg.chat).catch(() => ({})))?.nsfw === 1
+    const chatData = await db.getChat(msg.chat)
+    const nsfwOn = chatData?.nsfw === 1
     if (!nsfwOn && banned.some((w) => text.toLowerCase().includes(w))) {
       return msg.reply('✤ Este comando no permite búsquedas NSFW (activa #nsfw enable en el grupo).')
     }
