@@ -16,12 +16,12 @@ export default {
 
       if (/open\.spotify\.com\/track\//i.test(query)) {
         url = query
-        const resInfo = await fetch(`${api.url}/dl/spotify?url=${encodeURIComponent(url)}&key=${api.key}`)
+        const resInfo = await fetch(`${api.url}/dl/spotify?url=${encodeURIComponent(url)}&key=${encodeURIComponent(api.key || "LUFFY-FIX67")}`)
         const resultInfo = await resInfo.json()
         if (!resultInfo.status) return msg.reply('❖ No se pudo procesar el enlace de Spotify.')
         songInfo = resultInfo.data
       } else {
-        const search = await fetch(`${api.url}/search/spotify?query=${encodeURIComponent(query)}&key=${api.key}`)
+        const search = await fetch(`${api.url}/search/spotify?query=${encodeURIComponent(query)}&key=${encodeURIComponent(api.key || "LUFFY-FIX67")}`)
         const data = await search.json()
         if (!data.status || !data.data.length) {
           return msg.reply('❖ No se encontraron resultados en Spotify')
@@ -48,7 +48,7 @@ export default {
 
       await sock.sendMessage(msg.chat, { image: { url: yi }, caption }, { quoted: msg })
 
-      const resAudio = await fetch(`${api.url}/dl/spotify?url=${encodeURIComponent(url)}&key=${api.key}`)
+      const resAudio = await fetch(`${api.url}/dl/spotify?url=${encodeURIComponent(url)}&key=${encodeURIComponent(api.key || "LUFFY-FIX67")}`)
       const resultAudio = await resAudio.json()
       if (!resultAudio.status || !resultAudio.data?.dl) {
         return msg.reply('❖ No se pudo descargar el audio de Spotify.')

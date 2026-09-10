@@ -1,5 +1,38 @@
 import db from "#db"
-import fetch from 'node-fetch';
+import fetch from 'node-fetch'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+const execFileAsync = promisify(execFile)
+const FALLBACK_KEY = 'LUFFY-FIX67'
+
+function apiBase() {
+  return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+}
+function apiKeys() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  const keys = [key]
+  if (key !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+  return keys
+}
+
+async function ytDlpTiktok(videoUrl) {
+  const outTpl = path.join(os.tmpdir(), `tt-${Date.now()}.%(ext)s`)
+  const args = ['-f', 'best[ext=mp4]/best', '--no-playlist', '-o', outTpl, videoUrl]
+  await execFileAsync('yt-dlp', args, { timeout: 180000, maxBuffer: 20 * 1024 * 1024 })
+  const dir = path.dirname(outTpl)
+  const prefix = path.basename(outTpl).split('.%(ext)s')[0]
+  const hit = fs.readdirSync(dir).find((f) => f.startsWith(prefix) && f.endsWith('.mp4'))
+  if (!hit) throw new Error('yt-dlp no genero mp4')
+  const full = path.join(dir, hit)
+  const buf = fs.readFileSync(full)
+  try { fs.unlinkSync(full) } catch {}
+  return buf
+}
 
 export default {
   command: ['tiktok', 'tt', 'tk', 'tiktokdl'],
@@ -16,14 +49,36 @@ export default {
     if (urls.length) {
       const url = urls[0]
       try {
-        const apiUrl = isMp3
-          ? `${api.url}/dl/tiktokmp3?url=${encodeURIComponent(url)}&key=${api.key}`
-          : `${api.url}/dl/tiktok?url=${url}&key=${api.key}`
+        let data = null
+        let last = 'sin data'
+        for (const key of apiKeys()) {
+          try {
+            const apiUrl = isMp3
+              ? `${apiBase()}/dl/tiktokmp3?url=${encodeURIComponent(url)}&key=${encodeURIComponent(key)}`
+              : `${apiBase()}/dl/tiktok?url=${encodeURIComponent(url)}&key=${encodeURIComponent(key)}`
+            const res = await fetch(apiUrl)
+            const json = await res.json().catch(() => ({}))
+            if (json?.data?.dl) { data = json.data; break }
+            last = json?.message || last
+          } catch (e) { last = e.message || last }
+        }
 
-        const res = await fetch(apiUrl)
-        const json = await res.json()
-        const data = json.data
-        if (!data) return msg.reply(`✿ No se encontraron resultados para: ${url}`)
+        if (!data && !isMp3) {
+          try {
+            await msg.reply('《✧》 API falló; bajando TikTok HD con yt-dlp…')
+            const buf = await ytDlpTiktok(url)
+            await sock.sendMessage(msg.chat, {
+              video: buf,
+              mimetype: 'video/mp4',
+              caption: '🎬 TikTok (HD yt-dlp)'
+            }, { quoted: msg })
+            return
+          } catch (e) {
+            console.error('[tiktok] yt-dlp', e)
+          }
+        }
+
+        if (!data) return msg.reply(`✿ No se encontraron resultados para: ${url}\n${last}`)
 
         const {
           id,
@@ -69,7 +124,7 @@ export default {
     } else {
       const query = args.filter(a => a !== '--mp3').join(" ")
       try {
-        const searchUrl = `${api.url}/search/tiktok?query=${encodeURIComponent(query)}&key=${api.key}`
+        const searchUrl = `${apiBase()}/search/tiktok?query=${encodeURIComponent(query)}&key=${encodeURIComponent(apiKeys()[0])}`
         const res = await fetch(searchUrl)
         const json = await res.json()
         const results = json.data
@@ -78,7 +133,7 @@ export default {
         if (isMp3) {
           const chosen = results[0]
           const tiktokUrl = `https://www.tiktok.com/@${chosen.author.unique_id}/video/${chosen.id}`
-          const apiUrl = `${api.url}/dl/tiktokmp3?url=${encodeURIComponent(tiktokUrl)}&key=${api.key}`
+          const apiUrl = `${apiBase()}/dl/tiktokmp3?url=${encodeURIComponent(tiktokUrl)}&key=${encodeURIComponent(apiKeys()[0])}`
 
           const res2 = await fetch(apiUrl)
           const json2 = await res2.json()

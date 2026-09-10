@@ -1,6 +1,6 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
-Version **1.1.10** — fix #imagen getChat (TypeError .catch).
+Version **1.1.11** — descargas HD: #play/#ytvideo sin yt-search (Alyacore), yt-dlp ≤1080, TikTok yt-dlp fallback, IG/FB/SP reforzados.\n\nVersion **1.1.10** — fix #imagen getChat (TypeError .catch).
 
 Version **1.1.9** — search: #ytsearch (API Alyacore, sin 302), #ttsearch #wiki #pin #imagen #apk #ams.
 

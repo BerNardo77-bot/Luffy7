@@ -1,4 +1,3 @@
-import yts from 'yt-search'
 import fetch from 'node-fetch'
 import fs from 'fs'
 import path from 'path'
@@ -40,6 +39,36 @@ function getApiKey() {
   if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
   return key
 }
+
+async function searchYoutube(query) {
+  const base = (typeof api !== 'undefined' && api?.url) ? String(api.url).replace(/\/$/, '') : 'https://api.alyacore.xyz'
+  const keys = [getApiKey()]
+  if (keys[0] !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+  for (const key of keys) {
+    try {
+      const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+      const json = await fetchJson(url)
+      const list = json?.result || json?.data || []
+      if (json?.status && Array.isArray(list) && list.length) {
+        return list.map((v) => {
+          const u = v.url || ''
+          const id = (u.match(/[?&]v=([a-zA-Z0-9_-]{11})/) || u.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/) || [])[1]
+          return {
+            title: v.title || 'Sin título',
+            author: { name: v.autor || v.author || 'Desconocido' },
+            timestamp: v.duration || '',
+            views: Number(String(v.views || '0').replace(/[^0-9]/g, '')) || 0,
+            url: u,
+            image: v.banner || v.thumbnail || '',
+            videoId: id
+          }
+        })
+      }
+    } catch {}
+  }
+  return []
+}
+
 
 function mb(n) {
   return (n / 1024 / 1024).toFixed(1)
@@ -301,7 +330,7 @@ export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
   run: async ({ msg, sock, args }) => {
-    console.error('[ytvideo] build 116')
+    console.error('[ytvideo] build 117 HD')
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar.')
@@ -332,10 +361,10 @@ export default {
         }
       }
 
-      const search = await yts(query)
+      const videos = await searchYoutube(query)
       const videoInfo = videoMatch
-        ? search.videos.find(v => v.videoId === videoMatch[1]) || search.all[0]
-        : search.all[0]
+        ? (videos.find(v => v.videoId === videoMatch[1]) || videos[0])
+        : videos[0]
 
       if (!videoInfo) {
         return msg.reply('《✧》 No se encontró información del video.')
@@ -346,8 +375,26 @@ export default {
       const title = videoInfo.title
       const vistas = (videoInfo.views || 0).toLocaleString()
       const canal = videoInfo.author?.name || 'Desconocido'
-      let thumbBuffer
-      try { thumbBuffer = await getBuffer(videoInfo.image) } catch { thumbBuffer = null }
+      const thumbUrl = videoInfo.image || ''
+      let thumbBuffer = null
+
+      // HD primero con yt-dlp (<=1080)
+      try {
+        await msg.reply('《✧》 Bajando en alta calidad (yt-dlp ≤1080p)…')
+        const hd = await downloadYoutubeWithYtDlp(url)
+        if (hd?.length && isMp4(hd)) {
+          const meta = `🎬 *${title}* (HD)\nCanal: ${canal}\nDuración: ${duration || '?'}\nVistas: ${vistas}`
+          await sock.sendMessage(msg.chat, {
+            video: hd,
+            mimetype: 'video/mp4',
+            fileName: 'video-hd.mp4',
+            caption: meta
+          }, { quoted: msg })
+          return
+        }
+      } catch (e) {
+        console.error('[ytvideo] yt-dlp query', e?.message || e)
+      }
 
       const caption = `【　✿　】 _\`୨୧  Download\` ───── *${title}*_
 
@@ -359,7 +406,7 @@ export default {
 > _──  ִ    ۟  *Descargando video completo con audio…*_`
 
       if (thumbBuffer) {
-        await sock.sendMessage(msg.chat, { image: thumbBuffer, caption }, { quoted: msg })
+        await sock.sendMessage(msg.chat, { image: thumbBuffer || (thumbUrl ? { url: thumbUrl } : undefined), caption }, { quoted: msg })
       } else {
         await msg.reply(caption)
       }

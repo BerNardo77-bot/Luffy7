@@ -14,11 +14,40 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
   throw new Error('Demasiados redirects (302)')
 }
 
-import ytsearch from 'yt-search'
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
+
+
+async function searchYoutube(query) {
+  const base = (typeof api !== 'undefined' && api?.url) ? String(api.url).replace(/\/$/, '') : 'https://api.alyacore.xyz'
+  const keys = [getApiKey()]
+  if (keys[0] !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+  for (const key of keys) {
+    try {
+      const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+      const json = await fetchJson(url)
+      const list = json?.result || json?.data || []
+      if (json?.status && Array.isArray(list) && list.length) {
+        return list.map((v) => {
+          const u = v.url || ''
+          const id = (u.match(/[?&]v=([a-zA-Z0-9_-]{11})/) || u.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/) || [])[1]
+          return {
+            title: v.title || 'Sin título',
+            author: { name: v.autor || v.author || v.channel || 'Desconocido' },
+            timestamp: v.duration || '',
+            views: Number(String(v.views || '0').replace(/[^0-9]/g, '')) || 0,
+            url: u,
+            image: v.banner || v.thumbnail || v.image || '',
+            videoId: id
+          }
+        })
+      }
+    } catch {}
+  }
+  return []
+}
 
 function getApiKey() {
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
@@ -114,20 +143,20 @@ export default {
       const videoMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/|v\/))([a-zA-Z0-9_-]{11})/)
       const query = videoMatch ? ('https://youtu.be/' + videoMatch[1]) : text
 
-      const searchResult = await ytsearch(query)
-      if (!searchResult.videos || !searchResult.videos.length) {
+      const videos = await searchYoutube(query)
+      if (!videos.length) {
         return msg.reply('《✧》 No se encontró información del video.')
       }
 
       const video = videoMatch
-        ? (searchResult.videos.find(v => v.videoId === videoMatch[1]) || searchResult.videos[0])
-        : searchResult.videos[0]
+        ? (videos.find(v => v.videoId === videoMatch[1]) || videos[0])
+        : videos[0]
 
       const { title, author, timestamp: duration, views, url, image } = video
       const vistas = (views || 0).toLocaleString()
       const canal = author?.name || author || 'Desconocido'
-      let thumbBuffer
-      try { thumbBuffer = await getBuffer(image) } catch { thumbBuffer = null }
+      let thumbBuffer = null
+      // Preferir URL remota; getBuffer a veces falla con 302 en thumbs
 
       const caption = `【　✿　】 _\`୨୧  Download\` ───── *${title}*_
 
@@ -138,10 +167,17 @@ export default {
 
 > _──  ִ    ۟  *¡Enviando audio, por favor espera!*_`
 
-      if (thumbBuffer) {
-        await sock.sendMessage(msg.chat, { image: thumbBuffer, caption }, { quoted: msg })
+      if (image || thumbBuffer) {
+        await sock.sendMessage(
+          msg.chat,
+          {
+            image: thumbBuffer || { url: image },
+            caption: caption + '\n\n🎧 Audio calidad *320 kbps*'
+          },
+          { quoted: msg }
+        )
       } else {
-        await msg.reply(caption)
+        await msg.reply(caption + '\n\n🎧 Audio calidad *320 kbps*')
       }
 
       const key = getApiKey()
