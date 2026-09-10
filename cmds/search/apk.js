@@ -1,51 +1,69 @@
-import db from "#db"
-import axios from 'axios';
+import fetch from 'node-fetch'
+
+const FALLBACK_KEY = 'LUFFY-FIX67'
+
+function apiBase() {
+  return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+}
+
+function apiKeys() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  const keys = [key]
+  if (key !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+  return keys
+}
 
 export default {
   command: ['aptoide', 'apk', 'apkdl'],
   category: 'search',
   run: async ({ msg, sock, args }) => {
-    if (!args || !args.length) {
-      return msg.reply(
-        '✿ Ingresa el *nombre* de la *aplicación*.',
-      )
-    }
-
     const query = args.join(' ').trim()
+    if (!query) return msg.reply('✎ Uso: #apk <nombre de la app>')
 
-    // await msg.reply(mess.wait)
+    await msg.reply('✎ Buscando APK...')
+    const base = apiBase()
+    let last = 'Sin resultados'
 
     try {
-      const response = await axios.get(
-        `${api.url}/search/apk?query=${encodeURIComponent(query)}&key=${api.key}`,
-      )
-      const data = response.data.data
+      for (const key of apiKeys()) {
+        try {
+          const url = `${base}/search/apk?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+          const res = await fetch(url)
+          const json = await res.json().catch(() => ({}))
+          const data = json?.data
+          if (!json?.status || !data?.name || !data?.dl) {
+            last = json?.message || last
+            continue
+          }
 
-      if (data.name && data.dl) {
-        const response = `ㅤ۟∩　ׅ　✿　ׅ　🅐pk 🅜od　ׄᰙ　ׅ
+          const info =
+            `✿ *APK*\n\n` +
+            `❖ Nombre › ${data.name}\n` +
+            `❖ Paquete › ${data.package || '?'}\n` +
+            `❖ Actualización › ${data.lastUpdated || '?'}\n` +
+            `❖ Tamaño › ${data.size || '?'}`
 
-𖣣ֶㅤ֯⌗ ❖ ׄ ⬭ *Nombre ›* ${data.name}
-𖣣ֶㅤ֯⌗ ❖ ׄ ⬭ *Paquete ›* ${data.package}
-𖣣ֶㅤ֯⌗ ❖ ׄ ⬭ *Última actualización ›* ${data.lastUpdated}
-𖣣ֶㅤ֯⌗ ❖ ׄ ⬭ *Tamaño ›* ${data.size}`
-
-    await msg.reply(response)
-
-        await sock.sendMessage(
-          msg.chat,
-          {
-            document: { url: data.dl },
-            fileName: `${data.name}.apk`,
-            mimetype: 'application/vnd.android.package-archive',
-            caption: global.dev,
-          },
-          { quoted: msg },
-        )
-      } else {
-        await sock.reply(msg.chat, `✿ No se encontró la aplicación solicitada.`, msg)
+          await msg.reply(info)
+          await sock.sendMessage(
+            msg.chat,
+            {
+              document: { url: data.dl },
+              fileName: `${String(data.name).replace(/[^\w.\- ]+/g, '')}.apk`,
+              mimetype: 'application/vnd.android.package-archive',
+              caption: typeof global !== 'undefined' && global.dev ? global.dev : 'Luffy7'
+            },
+            { quoted: msg }
+          )
+          return
+        } catch (e) {
+          last = e.message || last
+        }
       }
-    } catch (error) {
-      await msg.reply(msgglobal)
+      await msg.reply(`✎ No encontré la app *${query}*.\n${last}`)
+    } catch (e) {
+      console.error('[apk]', e)
+      await msg.reply(typeof msgglobal !== 'undefined' ? msgglobal : String(e?.message || e))
     }
-  },
-};
+  }
+}

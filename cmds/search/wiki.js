@@ -1,33 +1,33 @@
-import db from "#db"
-import axios from 'axios'
+import fetch from 'node-fetch'
 
 export default {
   command: ['wiki', 'wikipedia'],
   category: 'search',
-  run: async ({ msg, sock, args, command, text, usedPrefix: prefix }) => {
-    if (!text) return sock.reply(msg.chat, `✿ Por favor, ingresa lo que quieres buscar en Wikipedia.`, msg)
+  run: async ({ msg, sock, args, text }) => {
+    const q = (text || args.join(' ')).trim()
+    if (!q) return msg.reply('✎ Uso: #wiki <tema>')
+
+    await msg.reply('✎ Buscando en Wikipedia...')
     try {
-    //  await msg.react('🕒')
-      const searchUrl = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(text)}&format=json`
-      const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-      const results = searchRes.data.query.search
-      if (!results || results.length < 4) {
-       // await msg.react('✖️')
-        return sock.reply(msg.chat, '✿ No hay suficientes resultados en Wikipedia (mínimo 4).', msg)
+      const searchUrl =
+        `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=` +
+        `${encodeURIComponent(q)}&format=json&utf8=1`
+      const res = await fetch(searchUrl, { headers: { 'User-Agent': 'Luffy7-WhatsApp' } })
+      const json = await res.json().catch(() => ({}))
+      const results = json?.query?.search || []
+      if (!results.length) {
+        return msg.reply(`✎ Sin resultados en Wikipedia para *${q}*`)
       }
-      const count = Math.floor(Math.random() * 3) + 3
-      const shuffled = results.sort(() => 0.5 - Math.random())
-      const selected = shuffled.slice(0, count)
-      let replyText = `❑ *Wikipedia Search*\n\n> ✿ Búsqueda :: ${text}\n\n`
-      for (const r of selected) {
-        const snippet = r.snippet.replace(/<\/?span[^>]*>/g, '')
-        replyText += `• ${r.title}\n${snippet}\n\n`
+
+      let replyText = `❑ *Wikipedia*\n> ✿ ${q}\n\n`
+      for (const r of results.slice(0, 5)) {
+        const snippet = String(r.snippet || '').replace(/<[^>]+>/g, '')
+        replyText += `• *${r.title}*\n${snippet}\n\n`
       }
-      await sock.reply(msg.chat, replyText.trim(), msg)
-     // await msg.react('✔️')
+      await msg.reply(replyText.trim().slice(0, 3500))
     } catch (e) {
-     // await msg.react('✖️')
-      await msg.reply(msgglobal)
+      console.error('[wiki]', e)
+      await msg.reply(typeof msgglobal !== 'undefined' ? msgglobal : String(e?.message || e))
     }
-  },
+  }
 }

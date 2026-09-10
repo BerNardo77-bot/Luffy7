@@ -1,52 +1,72 @@
-import db from "#db"
-import fetch from 'node-fetch';
+import fetch from 'node-fetch'
+
+const FALLBACK_KEY = 'LUFFY-FIX67'
+
+function apiBase() {
+  return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+}
+
+function apiKeys() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  const keys = [key]
+  if (key !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+  return keys
+}
 
 export default {
   command: ['tiktoksearch', 'ttsearch', 'tts'],
   category: 'search',
   run: async ({ msg, sock, args }) => {
-    const botId = sock.user.id.split(':')[0] + '@s.whatsapp.net'
-    const botSettings = await db.getSettings(botId)
-    const banner = botSettings.icon
+    const query = args.join(' ').trim()
+    if (!query) return msg.reply('✎ Uso: #ttsearch <texto>')
 
-    if (!args || !args.length) {
-      return sock.reply(
-        msg.chat,
-        `✿ Ingresa un término de búsqueda.`,
-        msg,
-      )
-    }
-
-    const query = args.join(' ')
-    const url = `${api.url}/search/tiktok?query=${query}&key=${api.key}`
+    await msg.reply('✎ Buscando en TikTok...')
+    const base = apiBase()
+    let last = 'Sin resultados'
 
     try {
-      const res = await fetch(url)
-      const json = await res.json()
+      for (const key of apiKeys()) {
+        try {
+          const url = `${base}/search/tiktok?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+          const res = await fetch(url)
+          const json = await res.json().catch(() => ({}))
+          const list = json?.data || json?.result || []
+          if (!json?.status || !Array.isArray(list) || !list.length) {
+            last = json?.message || last
+            continue
+          }
 
-      if (!json || !json.data || !json.data.length) {
-        return sock.reply(msg.chat, `✿ No se encontraron resultados para "${query}".`, msg)
+          const top = list.slice(0, 5)
+          let message = `❑ *TikTok Search*\n> ✿ ${query}\n\n`
+          top.forEach((result, index) => {
+            const author = result.author || {}
+            const stats = result.stats || {}
+            const nick = author.nickname || author.name || '?'
+            const uid = author.unique_id || author.uniqueId || author.id || ''
+            const id = result.id || ''
+            message += `➩ *Título ›* ${result.title || '?'}\n\n`
+            message += `𖹭 ✿ Autor › ${nick}${uid ? ` (@${uid})` : ''}\n`
+            message += `𖹭 ✤ Views › ${stats.views ?? '?'}\n`
+            message += `𖹭 ✰ Likes › ${stats.likes ?? '?'}\n`
+            message += `𖹭 ⚡︎ Duración › ${result.duration ?? '?'}\n`
+            if (uid && id) {
+              message += `𖹭 ❑ URL › https://www.tiktok.com/@${uid}/video/${id}\n`
+            } else if (result.url) {
+              message += `𖹭 ❑ URL › ${result.url}\n`
+            }
+            if (index < top.length - 1) message += `\n╾۪〬─ ┄─〬 ׅ┄─ׄ─۪〬 ┈┄─ׄ〬╼\n\n`
+          })
+          await msg.reply(message.slice(0, 3500))
+          return
+        } catch (e) {
+          last = e.message || last
+        }
       }
-
-      let message = ``
-      json.data.forEach((result, index) => {
-        message += `➩ *Título ›* ${result.title}
-
-𖹭  ׄ  ְ ✿ *Autor ›* ${result.author.nickname} (@${result.author.unique_id})
-𖹭  ׄ  ְ ✤ *Reproducciones ›* ${result.stats.views}
-𖹭  ׄ  ְ ✰ *Comentarios ›* ${result.stats.comments}
-𖹭  ׄ  ְ ❖ *Compartidos ›* ${result.stats.shares}
-𖹭  ׄ  ְ ꕥ *Me gusta ›* ${result.stats.likes}
-𖹭  ׄ  ְ ☄︎ *Descargas ›* ${result.stats.downloads}
-𖹭  ׄ  ְ ⚡︎ *Duración ›* ${result.duration}
-𖹭  ׄ  ְ ❑ *URL ›* https://www.tiktok.com/@${result.author.unique_id}/video/${result.id}
-
-${index < json.data.length - 1 ? '╾۪〬─ ┄۫╌ ׄ┄┈۪ ─〬 ׅ┄╌ ۫┈ ─ׄ─۪〬 ┈ ┄۫╌ ┈┄۪ ─ׄ〬╼' : ''}
-        `
-      })
-      await msg.reply(message)
+      await msg.reply(`✎ No encontré resultados para *${query}*.\n${last}`)
     } catch (e) {
-      await msg.reply(msgglobal)
+      console.error('[ttsearch]', e)
+      await msg.reply(typeof msgglobal !== 'undefined' ? msgglobal : String(e?.message || e))
     }
-  },
-};
+  }
+}

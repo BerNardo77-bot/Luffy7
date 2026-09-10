@@ -1,73 +1,76 @@
-import db from "#db"
-import fetch from 'node-fetch';
+import db from '#db'
+import fetch from 'node-fetch'
+
+const FALLBACK_KEY = 'LUFFY-FIX67'
+
+function apiBase() {
+  return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+}
+
+function apiKeys() {
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
+  const keys = [key]
+  if (key !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
+  return keys
+}
 
 export default {
   command: ['imagen', 'img', 'image'],
   category: 'search',
-  run: async ({ msg, sock, args, from }) => {
-    const text = args.join(' ')
-    if (!text) {
-      return sock.reply(
-        msg.chat,
-        `✿ Ingresa un término de búsqueda.`,
-        msg,
-      )
+  run: async ({ msg, sock, args }) => {
+    const text = args.join(' ').trim()
+    if (!text) return msg.reply('✎ Uso: #imagen <texto>')
+
+    const banned = ['xxx', 'porn', 'porno', 'xnxx', 'xvideos', 'onlyfans', 'hentai']
+    const nsfwOn = (await db.getChat(msg.chat).catch(() => ({})))?.nsfw === 1
+    if (!nsfwOn && banned.some((w) => text.toLowerCase().includes(w))) {
+      return msg.reply('✤ Este comando no permite búsquedas NSFW (activa #nsfw enable en el grupo).')
     }
 
-const bannedWords = [
-  '+18', '18+', 'contenido adulto', 'contenido explícito', 'contenido sexual',
-  'actriz porno', 'actor porno', 'estrella porno', 'pornstar', 'video xxx', 'xxx', 'x x x',
-  'pornhub', 'xvideos', 'xnxx', 'redtube', 'brazzers', 'onlyfans', 'cam4', 'chaturbate',
-  'myfreecams', 'bongacams', 'livejasmin', 'spankbang', 'tnaflix', 'hclips', 'fapello',
-  'mia khalifa', 'lana rhoades', 'riley reid', 'abella danger', 'brandi love',
-  'eva elfie', 'nicole aniston', 'janice griffith', 'alexis texas', 'lela star',
-  'gianna michaels', 'adriana chechik', 'asa akira', 'mandy muse', 'kendra lust',
-  'jordi el niño polla', 'johnny sins', 'danny d', 'manuel ferrara', 'mark rockwell',
-  'porno', 'porn', 'sexo', 'sex', 'desnudo', 'desnuda', 'erótico', 'erotico', 'erotika',
-  'tetas', 'pechos', 'boobs', 'boob', 'nalgas', 'culo', 'culos', 'qlos', 'trasero',
-  'pene', 'verga', 'vergota', 'pito', 'chocha', 'vagina', 'vaginas', 'coño', 'concha',
-  'genital', 'genitales', 'masturbar', 'masturbación', 'masturbacion', 'gemidos',
-  'gemir', 'orgía', 'orgy', 'trío', 'trio', 'gangbang', 'creampie', 'facial', 'cum',
-  'milf', 'teen', 'incesto', 'incest', 'violación', 'violacion', 'rape', 'bdsm',
-  'hentai', 'tentacle', 'tentáculos', 'fetish', 'fetiche', 'sado', 'sadomaso',
-  'camgirl', 'camsex', 'camshow', 'playboy', 'playgirl', 'playmate', 'striptease',
-  'striptis', 'slut', 'puta', 'putas', 'perra', 'perras', 'whore', 'fuck', 'fucking',
-  'fucked', 'cock', 'dick', 'pussy', 'ass', 'shemale', 'trans', 'transgénero',
-  'transgenero', 'lesbian', 'lesbiana', 'gay', 'lgbt', 'explicit', 'hardcore',
-  'softcore', 'nudista', 'nudismo', 'nudity', 'deepthroat', 'dp', 'double penetration',
-  'analplay', 'analplug', 'rimjob', 'spank', 'spanking', 'lick', 'licking', '69',
-  'doggystyle', 'reverse cowgirl', 'cowgirl', 'blowjob', 'bj', 'handjob', 'hj',
-  'p0rn', 's3x', 'v@gina', 'c0ck', 'd1ck', 'fuk', 'fuking', 'fak', 'boobz', 'pusy',
-  'azz', 'cumshot', 'sexcam', 'livecam', 'webcam', 'sexchat', 'sexshow', 'sexvideo',
-  'sexvid', 'sexpics', 'sexphoto', 'seximage', 'sexgif', 'pornpic', 'pornimage',
-  'pornvid', 'pornvideo', 'only fan', 'only-fans', 'only_fans', 'onlyfans.com',
-  'mia khalifha', 'mia khalifah', 'mia khalifaa', 'mia khalif4', 'mia khal1fa',
-  'mia khalifa +18', 'mia khalifa xxx', 'mia khalifa desnuda', 'mia khalifa porno'
-]
-    const lowerText = text.toLowerCase()
-    const nsfwEnabled = await db.getChat(msg.chat).nsfw === 1
-
-    if (!nsfwEnabled && bannedWords.some((word) => lowerText.includes(word))) {
-      return msg.reply('✤ Este comando no permite búsquedas de contenido +18 o NSFW')
-    }
-
-    await msg.reply(mess.wait)
-
-    const url = `${api.url}/search/googleimagen?query=${encodeURIComponent(text)}&key=${api.key}`
+    await msg.reply('✎ Buscando imagen...')
+    const base = apiBase()
 
     try {
-      const res = await fetch(url)
-
-      if (!res.ok || !res.headers.get('content-type')?.includes('image')) {
-        return msg.reply(`✿ No se encontraron resultados para ${text}`)
+      // 1) Google imagen Alyacore
+      for (const key of apiKeys()) {
+        try {
+          const url = `${base}/search/googleimagen?query=${encodeURIComponent(text)}&key=${encodeURIComponent(key)}`
+          const res = await fetch(url)
+          const ctype = (res.headers.get('content-type') || '').toLowerCase()
+          if (res.ok && ctype.includes('image')) {
+            const buffer = Buffer.from(await res.arrayBuffer())
+            if (buffer.length > 256) {
+              await sock.sendMessage(msg.chat, { image: buffer, caption: text }, { quoted: msg })
+              return
+            }
+          }
+        } catch {}
       }
 
-      const buffer = await res.buffer()
+      // 2) Fallback Pinterest
+      for (const key of apiKeys()) {
+        try {
+          const url = `${base}/search/pinterest?query=${encodeURIComponent(text)}&key=${encodeURIComponent(key)}`
+          const res = await fetch(url)
+          const json = await res.json().catch(() => ({}))
+          const item = (json?.data || [])[0]
+          const img = item?.hd || item?.url || item?.mini
+          if (json?.status && img) {
+            await sock.sendMessage(
+              msg.chat,
+              { image: { url: img }, caption: `✿ ${text}` },
+              { quoted: msg }
+            )
+            return
+          }
+        } catch {}
+      }
 
-      await sock.sendMessage(msg.chat, { image: buffer }, { quoted: msg })
+      await msg.reply(`✎ No encontré imagen para *${text}*`)
     } catch (e) {
-     // console.error(e)
-      await msg.reply(msgglobal)
+      console.error('[imagen]', e)
+      await msg.reply(typeof msgglobal !== 'undefined' ? msgglobal : String(e?.message || e))
     }
-  },
-};
+  }
+}
