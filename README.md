@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.13** — #apk siempre muestra el link; si pesa >90 MB no intenta subir el archivo.
+
 Version **1.1.12** — fix #play: miniatura YouTube ya no tumba el audio.
 
 Version **1.1.11** — descargas HD: #play/#ytvideo sin yt-search (Alyacore), yt-dlp ≤1080, TikTok yt-dlp fallback, IG/FB/SP reforzados.\n\nVersion **1.1.10** — fix #imagen getChat (TypeError .catch).

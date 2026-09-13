@@ -14,12 +14,26 @@ function apiKeys() {
   return keys
 }
 
+function sizeMb(size) {
+  const n = parseFloat(String(size || '').replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 export default {
   command: ['aptoide', 'apk', 'apkdl'],
   category: 'search',
   run: async ({ msg, sock, args }) => {
     const query = args.join(' ').trim()
-    if (!query) return msg.reply('✎ Uso: #apk <nombre de la app>')
+    if (!query) {
+      return msg.reply('✎ Uso: #apk <nombre de la app>\nEjemplo: #apk WhatsApp')
+    }
+
+    if (/^https?:\/\//i.test(query)) {
+      return msg.reply(
+        `✎ Link APK detectado\n\n${query}\n\n` +
+          `Abre el link para descargar. WhatsApp a veces no puede subir APKs muy grandes.`
+      )
+    }
 
     await msg.reply('✎ Buscando APK...')
     const base = apiBase()
@@ -37,24 +51,41 @@ export default {
             continue
           }
 
+          const mb = sizeMb(data.size)
           const info =
             `✿ *APK*\n\n` +
             `❖ Nombre › ${data.name}\n` +
             `❖ Paquete › ${data.package || '?'}\n` +
             `❖ Actualización › ${data.lastUpdated || '?'}\n` +
-            `❖ Tamaño › ${data.size || '?'}`
+            `❖ Tamaño › ${data.size || '?'}\n` +
+            `❖ Link › ${data.dl}`
 
           await msg.reply(info)
-          await sock.sendMessage(
-            msg.chat,
-            {
-              document: { url: data.dl },
-              fileName: `${String(data.name).replace(/[^\w.\- ]+/g, '')}.apk`,
-              mimetype: 'application/vnd.android.package-archive',
-              caption: typeof global !== 'undefined' && global.dev ? global.dev : 'Luffy7'
-            },
-            { quoted: msg }
-          )
+
+          // WhatsApp aguanta más que Telegram, pero 200+ MB suele fallar/timeout
+          if (mb != null && mb > 90) {
+            await msg.reply(
+              `✎ Pesa *${data.size}*: no lo subo por WhatsApp (se cuelga).\n` +
+                `Abre el *link* de arriba en el navegador para descargarlo.`
+            )
+            return
+          }
+
+          try {
+            await sock.sendMessage(
+              msg.chat,
+              {
+                document: { url: data.dl },
+                fileName: `${String(data.name).replace(/[^\w.\- ]+/g, '')}.apk`,
+                mimetype: 'application/vnd.android.package-archive',
+                caption: typeof global !== 'undefined' && global.dev ? global.dev : 'Luffy7'
+              },
+              { quoted: msg }
+            )
+          } catch (e) {
+            console.error('[apk] document', e?.message || e)
+            await msg.reply('✎ No pude subir el archivo. Usa el link de arriba.')
+          }
           return
         } catch (e) {
           last = e.message || last
