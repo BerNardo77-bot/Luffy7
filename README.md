@@ -77,8 +77,9 @@ Escanea el QR: WhatsApp → Dispositivos vinculados.
 
 ```bash
 cd ~/Luffy7
-git pull
-npm install
+pkill -9 -f node || true
+git fetch origin
+git reset --hard origin/main
 npm start
 ```
 
