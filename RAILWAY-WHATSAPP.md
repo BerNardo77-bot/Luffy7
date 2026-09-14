@@ -26,7 +26,7 @@ Hace falta un Volume o cada redeploy pide vincular otra vez.
 La app de Railway hoy solo ve bbboy. Hay que agregar Andrewmisses-olo (no Luffy7, no bbboy).
 
 1. GitHub → Settings → Applications → Installed → Railway → Configure
-2. Repository access → Select repositories → agrega luffywa
+2. Repository access → Select repositories → agrega Andrewmisses-olo
 3. Save
 
 Luego:
