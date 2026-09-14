@@ -1,6 +1,6 @@
 # Luffy7 WhatsApp en Railway (numero NUEVO, sin Termux)
 
-Repo nube: https://github.com/BerNardo77-bot/luffywa
+Repo nube: https://github.com/BerNardo77-bot/Andrewmisses-olo
 Codigo (Termux): https://github.com/BerNardo77-bot/Luffy7
 Version: 1.1.14
 
@@ -23,7 +23,7 @@ Hace falta un Volume o cada redeploy pide vincular otra vez.
 
 ## 2. GitHub + Railway
 
-La app de Railway hoy solo ve bbboy. Hay que agregar luffywa (no Luffy7, no bbboy).
+La app de Railway hoy solo ve bbboy. Hay que agregar Andrewmisses-olo (no Luffy7, no bbboy).
 
 1. GitHub → Settings → Applications → Installed → Railway → Configure
 2. Repository access → Select repositories → agrega luffywa
@@ -34,7 +34,7 @@ Luego:
 1. https://railway.app (cuenta BerNardo77-bot)
 2. Proyectos → Nuevo
 3. Implemente un repositorio de GitHub
-4. Elige luffywa (main). No sandbox, no bbboy, no Luffy7.
+4. Elige Andrewmisses-olo (main). No sandbox, no bbboy, no Luffy7.
 
 ---
 
@@ -42,7 +42,7 @@ Luego:
 
 Sin esto, al redesplegar se pierde la sesion.
 
-1. En el servicio luffywa → Settings o Volumes
+1. En el servicio Andrewmisses-olo → Settings o Volumes
 2. New Volume
 3. Mount path: /data
 4. Add
@@ -108,6 +108,6 @@ Trial 30 dias / $5: si se acaba, el bot se apaga; el Volume guarda la sesion.
 
 ## Actualizar
 
-Push a main en luffywa. Railway redespliega.
+Push a main en Andrewmisses-olo. Railway redespliega.
 No borres el Volume.
 Termux de Yampi no se toca.
