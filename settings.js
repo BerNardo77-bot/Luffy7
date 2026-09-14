@@ -2,7 +2,8 @@ import { watchFile, unwatchFile } from 'fs'
 import { fileURLToPath } from 'url'
 
 // Pon aquí tus números (código país + número, sin +). Ejemplo: '52155...'
-global.owner = []
+const ownerEnv = String(process.env.OWNER_NUMBER || process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '')
+global.owner = ownerEnv ? [ownerEnv] : []
 
 global.api = {
   url: 'https://api.alyacore.xyz',

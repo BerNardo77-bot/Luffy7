@@ -26,6 +26,21 @@ let phoneInput = "";
 let lineM = '⋯ ⋯ ⋯ ⋯ ⋯ ⋯ ⋯ ⋯ ⋯ ⋯ ⋯ 》'
 const methodCodeQR = process.argv.includes("--qr");
 const methodCode = process.argv.includes("code");
+const DATA_DIR = (process.env.DATA_DIR || process.cwd()).replace(/\/$/, '')
+const SESSION_OWNER = path.join(DATA_DIR, 'Sessions', 'Owner')
+fs.mkdirSync(SESSION_OWNER, { recursive: true })
+const cloudPhone = String(process.env.WHATSAPP_NUMBER || process.env.BOT_PHONE || '').replace(/\D/g, '')
+const isCloud = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.DATA_DIR || cloudPhone)
+
+const cloudPort = Number(process.env.PORT)
+if (Number.isFinite(cloudPort) && cloudPort > 0) {
+  import('http').then((http) => {
+    http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end('Luffy7 WhatsApp ok\n')
+    }).listen(cloudPort, '0.0.0.0', () => console.log('[cloud] HTTP health', cloudPort))
+  }).catch((e) => console.error('[cloud] http', e?.message || e))
+}
 function normalizePhone(input) {
   let s = String(input).replace(/\D/g, '');
   if (!s) return '';
@@ -91,7 +106,7 @@ async function initDB() {
 
 function clearSession() {
   try {
-    const sessionDir = './Sessions/Owner';
+    const sessionDir = SESSION_OWNER;
     if (!fs.existsSync(sessionDir)) return;
     for (const file of fs.readdirSync(sessionDir)) {
       try { fs.unlinkSync(path.join(sessionDir, file)); } catch {}
@@ -103,7 +118,15 @@ function clearSession() {
 }
 
 let opcion;
-if (methodCodeQR) {
+if (isCloud && !fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
+  if (!cloudPhone) {
+    console.error('Falta WHATSAPP_NUMBER (codigo pais + numero, sin +). Ejemplo: 5215512345678')
+    process.exit(1)
+  }
+  opcion = "2"
+  phoneNumber = normalizePhone(cloudPhone)
+  console.log('[cloud] Pairing para', phoneNumber)
+} else if (methodCodeQR) {
   opcion = "1";
 } else if (methodCode) {
   opcion = "2";
@@ -112,7 +135,7 @@ if (methodCodeQR) {
     phoneInput = readlineSync.question("");
     phoneNumber = normalizePhone(phoneInput);
   }
-} else if (!fs.existsSync("./Sessions/Owner/creds.json")) {
+} else if (!fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
     opcion = readlineSync.question(`╭${lineM}  
 ┊ ${chalk.blueBright('╭┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}
 ┊ ${chalk.blueBright('┊')} ${chalk.blue.bgBlue.bold.cyan('METODO DE VINCULACION')}
@@ -168,7 +191,7 @@ export async function startBot() {
   if (isRestarting) return;
   isRestarting = true;
   bootTime = Date.now();
-  const { state, saveCreds } = await useMultiFileAuthState('./Sessions/Owner');
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_OWNER);
   const { version } = await fetchLatestBaileysVersion();
   console.info = () => {};
   console.debug = () => {};
@@ -204,6 +227,10 @@ export async function startBot() {
         if (!state.creds.registered) {
           const pairing = await sock.requestPairingCode(phoneNumber);
           const codeBot = pairing?.match(/.{1,4}/g)?.join("-") || pairing;
+          console.log('========================================')
+          console.log('CODIGO WHATSAPP (8 digitos):', codeBot)
+          console.log('WhatsApp → Dispositivos vinculados → Vincular con numero de telefono')
+          console.log('========================================')
           console.log(chalk.bold.white(chalk.bgMagenta(`Código de emparejamiento:`)), chalk.bold.white(chalk.white(codeBot)));
         }
       } catch (err) {

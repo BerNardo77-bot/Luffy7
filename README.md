@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.14** — Railway/Render: pairing por WHATSAPP_NUMBER (logs), Volume /data. Guia: RAILWAY-WHATSAPP.md
+
 Version **1.1.13** — #apk siempre muestra el link; si pesa >90 MB no intenta subir el archivo.
 
 Version **1.1.12** — fix #play: miniatura YouTube ya no tumba el audio.

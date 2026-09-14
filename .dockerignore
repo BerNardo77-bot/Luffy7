@@ -1,0 +1,6 @@
+node_modules
+Sessions
+database.json
+.git
+*.log
+lib/system/tmp
