@@ -9,6 +9,8 @@ const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
 const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 const MAX_SEND_BYTES = 64 * 1024 * 1024
+const MAX_DURATION_SEC = 20 * 60 // tope duro; WhatsApp ~64MB suele cortar antes
+const FFMPEG_TIMEOUT_MS = 240000 // 4 min max por intento (evita congelar el bot)
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
 
 function parseDurationToSeconds(ts) {
@@ -122,16 +124,23 @@ async function downloadVideoBuffer(url) {
   return buf
 }
 
-async function downloadYoutubeWithYtDlp(videoUrl) {
+async function downloadYoutubeWithYtDlp(videoUrl, { maxHeight = 720 } = {}) {
   if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
   const base = path.join(TMP_DIR, "yt-" + Date.now())
   const outTpl = base + ".%(ext)s"
-  const common = ["--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]
-  const fmtHd = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/best"
+  const common = ["--no-playlist", "--js-runtimes", "node", "--remote-components", "ejs:github", "-o", outTpl, videoUrl]
+  // Preferir H.264/AVC (WhatsApp + copy rápido). AV1/VP9 obligan a reencode y congelan Northflank.
+  const h = Number(maxHeight) || 720
+  const fmtAvc =
+    `bv*[vcodec^=avc1][height<=${h}]+ba[ext=m4a]/` +
+    `bv*[vcodec*=avc1][height<=${h}]+ba/` +
+    `b[vcodec^=avc1][height<=${h}]/` +
+    `bv*[height<=${h}][ext=mp4]+ba[ext=m4a]/` +
+    `b[height<=${h}]/best`
   const attempts = [
-    ["yt-dlp", ["-f", fmtHd, "--merge-output-format", "mp4", ...common]],
-    ["yt-dlp", ["-f", "b[height<=1080]/b", "--extractor-args", "youtube:player_client=android", "--no-playlist", "-o", outTpl, videoUrl]],
-    ["python3", ["-m", "yt_dlp", "-f", fmtHd, "--merge-output-format", "mp4", "--no-playlist", "--js-runtimes", "node", "-o", outTpl, videoUrl]]
+    ["yt-dlp", ["-f", fmtAvc, "--merge-output-format", "mp4", ...common]],
+    ["yt-dlp", ["-f", `b[height<=${h}]/b`, "--extractor-args", "youtube:player_client=android", "--remote-components", "ejs:github", "--no-playlist", "-o", outTpl, videoUrl]],
+    ["python3", ["-m", "yt_dlp", "-f", fmtAvc, "--merge-output-format", "mp4", "--no-playlist", "--js-runtimes", "node", "--remote-components", "ejs:github", "-o", outTpl, videoUrl]]
   ]
   let last = "yt-dlp no disponible"
   for (const pair of attempts) {
@@ -153,7 +162,6 @@ async function downloadYoutubeWithYtDlp(videoUrl) {
   }
   throw new Error(last.slice(0, 180))
 }
-
 
 function isMp4(buf) {
   if (!buf || buf.length < 12) return false
@@ -190,6 +198,21 @@ async function probeDuration(filePath) {
   }
 }
 
+async function probeVideoCodec(filePath) {
+  try {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=codec_name',
+      '-of', 'default=nk=1:nw=1',
+      filePath
+    ], { timeout: 30000 })
+    return String(stdout || '').trim().toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 async function prepareForWhatsApp(inputBuf, baseName, { forceCompress = false } = {}) {
   if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
   const inFile = path.join(TMP_DIR, `${baseName}-in.mp4`)
@@ -198,15 +221,69 @@ async function prepareForWhatsApp(inputBuf, baseName, { forceCompress = false } 
 
   const hasAudio = await probeHasAudio(inFile)
   const duration = await probeDuration(inFile)
+  const vcodec = await probeVideoCodec(inFile)
+  const isAvc = /^(h264|avc1|avc)$/.test(vcodec)
 
-  // Siempre reencode con video+audio para WhatsApp (el copy a menudo deja videos mudos o truncados)
+  if (duration > MAX_DURATION_SEC) {
+    try { fs.unlinkSync(inFile) } catch {}
+    return {
+      buffer: null,
+      hasAudio,
+      duration,
+      sourceHasAudio: hasAudio,
+      sourceDuration: duration,
+      tooLong: true,
+      vcodec
+    }
+  }
+
+  // AV1/VP9 largos: no reencodear (congela 0.2 vCPU). Pedir H.264 o video más corto.
+  if (!isAvc && duration >= 8 * 60) {
+    try { fs.unlinkSync(inFile) } catch {}
+    return {
+      buffer: null,
+      hasAudio,
+      duration,
+      sourceHasAudio: hasAudio,
+      sourceDuration: duration,
+      tooLong: false,
+      hardCodec: true,
+      vcodec
+    }
+  }
+
+  // 1) Remux copy si ya es H.264 (rápido, sirve para videos largos en HD)
+  if (isAvc && hasAudio && !forceCompress && inputBuf.length <= MAX_SEND_BYTES) {
+    try {
+      await execFileAsync('ffmpeg', [
+        '-y', '-i', inFile,
+        '-map', '0:v:0', '-map', '0:a:0?',
+        '-c', 'copy', '-movflags', '+faststart',
+        outFile
+      ], { timeout: 120000 })
+      if (fs.existsSync(outFile)) {
+        const out = fs.readFileSync(outFile)
+        if (out.length && isMp4(out) && out.length <= MAX_SEND_BYTES) {
+          const a = await probeHasAudio(outFile)
+          const d = await probeDuration(outFile)
+          try { fs.unlinkSync(inFile) } catch {}
+          try { fs.unlinkSync(outFile) } catch {}
+          return { buffer: out, hasAudio: a, duration: d || duration, sourceHasAudio: hasAudio, sourceDuration: duration, mode: 'copy' }
+        }
+      }
+    } catch (e) {
+      console.error('[ytvideo] ffmpeg copy', e?.message || e)
+    }
+  }
+
+  // 2) Reencode solo si hace falta (AV1/VP9 o sin AAC usable). ultrafast + tope tiempo.
+  const longVid = duration >= 5 * 60
   const encodes = []
-  if (!forceCompress && inputBuf.length <= MAX_SEND_BYTES) {
-    // calidad decente, audio AAC obligatorio
+  if (!longVid && !forceCompress && inputBuf.length <= MAX_SEND_BYTES) {
     encodes.push([
       '-y', '-i', inFile,
       '-map', '0:v:0', '-map', '0:a:0?',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
       '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-ar', '44100',
       '-movflags', '+faststart',
       outFile
@@ -215,33 +292,34 @@ async function prepareForWhatsApp(inputBuf, baseName, { forceCompress = false } 
   encodes.push([
     '-y', '-i', inFile,
     '-map', '0:v:0', '-map', '0:a:0?',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
-    '-vf', "scale='min(854,iw)':-2",
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', longVid ? '30' : '28',
+    '-vf', longVid ? "scale='min(720,iw)':-2,fps=30" : "scale='min(854,iw)':-2",
     '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-ar', '44100',
     '-movflags', '+faststart',
     outFile
   ])
-  encodes.push([
-    '-y', '-i', inFile,
-    '-map', '0:v:0', '-map', '0:a:0?',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32',
-    '-vf', "scale='min(640,iw)':-2",
-    '-c:a', 'aac', '-b:a', '64k', '-ac', '2', '-ar', '44100',
-    '-movflags', '+faststart',
-    outFile
-  ])
+  if (forceCompress || longVid || inputBuf.length > MAX_SEND_BYTES) {
+    encodes.push([
+      '-y', '-i', inFile,
+      '-map', '0:v:0', '-map', '0:a:0?',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '32',
+      '-vf', "scale='min(640,iw)':-2,fps=30",
+      '-c:a', 'aac', '-b:a', '64k', '-ac', '2', '-ar', '44100',
+      '-movflags', '+faststart',
+      outFile
+    ])
+  }
 
   let best = null
   let bestMeta = { hasAudio: false, duration: 0 }
   for (const args of encodes) {
     try {
-      await execFileAsync('ffmpeg', args, { timeout: 600000 })
+      await execFileAsync('ffmpeg', args, { timeout: FFMPEG_TIMEOUT_MS })
       if (!fs.existsSync(outFile)) continue
       const out = fs.readFileSync(outFile)
       if (!out.length || !isMp4(out)) continue
       const a = await probeHasAudio(outFile)
       const d = await probeDuration(outFile)
-      // Preferir con audio y duracion razonable
       const score = (a ? 100000000 : 0) + Math.min(d, 36000) * 1000 - out.length / 1000
       const bestScore = best
         ? ((bestMeta.hasAudio ? 100000000 : 0) + Math.min(bestMeta.duration, 36000) * 1000 - best.length / 1000)
@@ -250,7 +328,7 @@ async function prepareForWhatsApp(inputBuf, baseName, { forceCompress = false } 
         best = out
         bestMeta = { hasAudio: a, duration: d }
       }
-      if (out.length <= MAX_SEND_BYTES && a && d >= Math.max(1, duration * 0.85)) {
+      if (out.length <= MAX_SEND_BYTES && a && d >= Math.max(1, duration * 0.8)) {
         best = out
         bestMeta = { hasAudio: a, duration: d }
         break
@@ -264,11 +342,13 @@ async function prepareForWhatsApp(inputBuf, baseName, { forceCompress = false } 
   try { fs.unlinkSync(outFile) } catch {}
 
   return {
-    buffer: best || inputBuf,
+    buffer: best,
     hasAudio: bestMeta.hasAudio || hasAudio,
     duration: bestMeta.duration || duration,
     sourceHasAudio: hasAudio,
-    sourceDuration: duration
+    sourceDuration: duration,
+    mode: best ? 'reencode' : 'fail',
+    vcodec
   }
 }
 
@@ -330,7 +410,7 @@ export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
   run: async ({ msg, sock, args }) => {
-    console.error('[ytvideo] build 117 HD')
+    console.error('[ytvideo] build 120 HD-long AVC')
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar.')
@@ -348,12 +428,47 @@ export default {
           if (early?.length && isMp4(early)) {
             const fileName = 'video.mp4'
             const meta = 'Video de YouTube'
-            await sock.sendMessage(msg.chat, {
-              video: early,
-              mimetype: 'video/mp4',
-              fileName,
-              caption: meta
-            }, { quoted: msg })
+            const needCompress = early.length > MAX_SEND_BYTES
+            if (needCompress) {
+              await msg.reply(`《✧》 Pesa ${mb(early.length)} MB. Comprimiendo para WhatsApp…`)
+            }
+            const prepared = await prepareForWhatsApp(early, `${Date.now()}-early`, { forceCompress: needCompress })
+            if (prepared.tooLong) {
+              return msg.reply(
+                `《✧》 Ese video dura ~${Math.round((prepared.duration || 0) / 60)} min.\n` +
+                `En este servidor (Northflank) el límite seguro es ~${Math.round(MAX_DURATION_SEC / 60)} min para mandarlo por WhatsApp.\n` +
+                `Prueba un corte más corto, o abre el link en YouTube.`
+              )
+            }
+            if (prepared.hardCodec) {
+              return msg.reply(
+                `《✧》 El video (~${Math.round((prepared.duration || 0) / 60)} min) vino en *${prepared.vcodec || 'AV1/VP9'}*.\n` +
+                `Reencodearlo congelaría el bot. Prueba otro link o un video más corto.`
+              )
+            }
+            let out = prepared.buffer
+            if (!out?.length || !isMp4(out)) {
+              return msg.reply('《✧》 No pude dejar el video listo para WhatsApp a tiempo (evité congelar el bot). Prueba un video más corto o en H.264.')
+            }
+            if (out.length > MAX_SEND_BYTES) {
+              return msg.reply(`《✧》 Aun comprimido pesa ${mb(out.length)} MB y WhatsApp no lo acepta (~64 MB).`)
+            }
+            try {
+              await sock.sendMessage(msg.chat, {
+                video: out,
+                mimetype: 'video/mp4',
+                fileName,
+                caption: meta
+              }, { quoted: msg })
+            } catch (e1) {
+              console.error('[ytvideo] video fail', e1)
+              await sock.sendMessage(msg.chat, {
+                document: out,
+                mimetype: 'video/mp4',
+                fileName,
+                caption: meta
+              }, { quoted: msg })
+            }
             return
           }
         } catch (e) {
@@ -380,16 +495,56 @@ export default {
 
       // HD primero con yt-dlp (<=1080)
       try {
-        await msg.reply('《✧》 Bajando en alta calidad (yt-dlp ≤1080p)…')
-        const hd = await downloadYoutubeWithYtDlp(url)
+        await msg.reply('《✧》 Bajando HD (H.264 ≤720p, apto videos largos)……')
+                const hd = await downloadYoutubeWithYtDlp(url)
         if (hd?.length && isMp4(hd)) {
-          const meta = `🎬 *${title}* (HD)\nCanal: ${canal}\nDuración: ${duration || '?'}\nVistas: ${vistas}`
-          await sock.sendMessage(msg.chat, {
-            video: hd,
-            mimetype: 'video/mp4',
-            fileName: 'video-hd.mp4',
-            caption: meta
-          }, { quoted: msg })
+          const meta = `🎬 *${title}* (≤720p)\nCanal: ${canal}\nDuración: ${duration || '?'}\nVistas: ${vistas}`
+          const needCompress = hd.length > MAX_SEND_BYTES
+          if (needCompress) {
+            await msg.reply(`《✧》 Pesa ${mb(hd.length)} MB. Comprimiendo para WhatsApp…`)
+          }
+                    const prepared = await prepareForWhatsApp(hd, `${Date.now()}-hd`, { forceCompress: needCompress })
+          if (prepared.tooLong) {
+            return msg.reply(
+              `《✧》 *${title}* dura ~${Math.round((prepared.duration || 0) / 60)} min.
+` +
+              `Límite seguro aquí: ~${Math.round(MAX_DURATION_SEC / 60)} min.
+🔗 ${url}`
+            )
+          }
+          if (prepared.hardCodec) {
+            return msg.reply(
+              `《✧》 *${title}* (~${Math.round((prepared.duration || 0) / 60)} min) vino en *${prepared.vcodec || 'AV1/VP9'}*.
+` +
+              `No lo reencodeo para no congelar el bot.
+🔗 ${url}`
+            )
+          }
+          let out = prepared.buffer
+          if (!out?.length || !isMp4(out)) {
+            return msg.reply(`《✧》 No pude preparar *${title}* a tiempo (evité congelar el bot).
+🔗 ${url}`)
+          }
+          if (out.length > MAX_SEND_BYTES) {
+            return msg.reply(`《✧》 Aun comprimido pesa ${mb(out.length)} MB y WhatsApp no lo acepta (~64 MB).
+🔗 ${url}`)
+          }
+try {
+            await sock.sendMessage(msg.chat, {
+              video: out,
+              mimetype: 'video/mp4',
+              fileName: 'video-hd.mp4',
+              caption: meta
+            }, { quoted: msg })
+          } catch (e1) {
+            console.error('[ytvideo] video fail', e1)
+            await sock.sendMessage(msg.chat, {
+              document: out,
+              mimetype: 'video/mp4',
+              fileName: 'video-hd.mp4',
+              caption: meta
+            }, { quoted: msg })
+          }
           return
         }
       } catch (e) {
@@ -457,8 +612,28 @@ export default {
       }
 
       const expectedSec = Number(videoInfo.seconds) || parseDurationToSeconds(duration)
-      const prepared = await prepareForWhatsApp(videoBuffer, `${Date.now()}`, { forceCompress: needCompress })
+            const prepared = await prepareForWhatsApp(videoBuffer, `${Date.now()}`, { forceCompress: needCompress })
+      if (prepared.tooLong) {
+        return msg.reply(
+          `《✧》 *${title}* dura ~${Math.round((prepared.duration || 0) / 60)} min.
+` +
+          `Límite seguro aquí: ~${Math.round(MAX_DURATION_SEC / 60)} min para enviarlo por WhatsApp.
+🔗 ${url}`
+        )
+      }
+      if (prepared.hardCodec) {
+        return msg.reply(
+          `《✧》 *${title}* (~${Math.round((prepared.duration || 0) / 60)} min) vino en *${prepared.vcodec || 'AV1/VP9'}*.
+` +
+          `No lo reencodeo para no congelar el bot.
+🔗 ${url}`
+        )
+      }
       videoBuffer = prepared.buffer
+      if (!videoBuffer?.length || !isMp4(videoBuffer)) {
+        return msg.reply(`《✧》 No pude preparar el video a tiempo (evité congelar el bot).
+🔗 ${url}`)
+      }
 
       const dur = prepared.duration || prepared.sourceDuration || 0
       const bad = isBadMedia({
@@ -468,17 +643,21 @@ export default {
       })
       if (bad) {
         return msg.reply(
-          `《✧》 No envié el archivo: la fuente salió *${bad}*.\n` +
-          `YouTube indica ~${expectedSec ? Math.round(expectedSec) + 's' : 'desconocido'}; el archivo trae ~${Math.round(dur)}s.\n` +
-          `Prueba otro enlace (oficial/trailer) o /play para audio.\n🔗 ${url}`
+          `《✧》 No envié el archivo: la fuente salió *${bad}*.
+` +
+          `YouTube indica ~${expectedSec ? Math.round(expectedSec) + 's' : 'desconocido'}; el archivo trae ~${Math.round(dur)}s.
+` +
+          `Prueba otro enlace (oficial/trailer) o /play para audio.
+🔗 ${url}`
         )
       }
 
       if (videoBuffer.length > MAX_SEND_BYTES) {
-        return msg.reply(`《✧》 Aun comprimido pesa ${mb(videoBuffer.length)} MB y WhatsApp no lo acepta (~64 MB).\n🔗 ${dlUrl}`)
+        return msg.reply(`《✧》 Aun comprimido pesa ${mb(videoBuffer.length)} MB y WhatsApp no lo acepta (~64 MB).
+🔗 ${dlUrl}`)
       }
 
-      const meta = `${title}\n(${mb(videoBuffer.length)} MB · ${Math.round(dur)}s · con audio)`
+const meta = `${title}\n(${mb(videoBuffer.length)} MB · ${Math.round(dur)}s · con audio)`
 
       try {
         await sock.sendMessage(msg.chat, {
