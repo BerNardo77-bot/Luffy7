@@ -9,6 +9,8 @@ const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
 const MAX_DOWNLOAD = 500 * 1024 * 1024 // bajar hasta 500MB (WhatsApp NO envia 2GB)
 const MAX_SEND = 64 * 1024 * 1024
+const MAX_DURATION_SEC = 20 * 60 // mismo tope seguro que #ytvideo (Northflank)
+const FFMPEG_TIMEOUT_MS = 240000
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
 
 function getKey() {
@@ -21,7 +23,22 @@ function mb(n) {
   return (n / 1024 / 1024).toFixed(1)
 }
 
-function pickVideoCandidates(resultado) {
+function parseDurationToSeconds(ts) {
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts
+  if (!ts || typeof ts !== 'string') return 0
+  const s = ts.trim().toLowerCase()
+  const mMin = s.match(/(\d+)\s*min/)
+  const mSec = s.match(/(\d+)\s*sec/)
+  if (mMin || mSec) return (Number(mMin?.[1] || 0) * 60) + Number(mSec?.[1] || 0)
+  const parts = s.split(':').map(n => Number(n))
+  if (parts.some(n => !Number.isFinite(n))) return 0
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  if (parts.length === 1) return parts[0]
+  return 0
+}
+
+function pickVideoCandidates(resultado, { preferSaferHd = false } = {}) {
   const videos = resultado?.videos || resultado?.result?.videos || {}
   const list = []
   const seen = new Set()
@@ -30,8 +47,8 @@ function pickVideoCandidates(resultado) {
     seen.add(url)
     list.push({ quality, url })
   }
-  // Alta calidad primero; low de respaldo
-  push('1080p', videos['1080p'] || videos['1080'])
+  // Alta calidad primero; en videos largos evitamos 1080p (RAM/ffmpeg en Northflank)
+  if (!preferSaferHd) push('1080p', videos['1080p'] || videos['1080'])
   push('high', videos.high)
   push('720p', videos['720p'] || videos['720'])
   push('low', videos.low)
@@ -46,7 +63,8 @@ async function fetchDl(base, videoUrl, key) {
   return {
     ok: downloadRes.ok,
     json: downloadJson,
-    candidates: pickVideoCandidates(downloadJson?.resultado)
+    resultado: downloadJson?.resultado,
+    candidates: null
   }
 }
 
@@ -78,15 +96,14 @@ async function compressForWhatsApp(inputBuf, baseName) {
   fs.writeFileSync(inFile, inputBuf)
 
   const attempts = [
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-vf', "scale='min(720,iw)':-2", '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outFile],
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-vf', "scale='min(640,iw)':-2", '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', outFile],
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-vf', "scale='min(480,iw)':-2", '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', outFile]
+    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-vf', "scale='min(720,iw)':-2,fps=30", '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', outFile],
+    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '32', '-vf', "scale='min(480,iw)':-2,fps=30", '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', outFile]
   ]
 
   let best = null
   for (const args of attempts) {
     try {
-      await execFileAsync('ffmpeg', args, { timeout: 600000 })
+      await execFileAsync('ffmpeg', args, { timeout: FFMPEG_TIMEOUT_MS })
       if (!fs.existsSync(outFile)) continue
       const out = fs.readFileSync(outFile)
       if (!out.length) continue
@@ -102,13 +119,14 @@ async function compressForWhatsApp(inputBuf, baseName) {
 
   try { fs.unlinkSync(inFile) } catch {}
   try { fs.unlinkSync(outFile) } catch {}
-  return best || inputBuf
+  return best
 }
 
 export default {
   command: ["xvideos"],
   category: "nsfw",
   run: async ({ msg, sock, args }) => {
+    console.error('[xvideos] build 120-safe 20min')
     const chat = await db.getChat(msg.chat)
     if (!chat.nsfw) return msg.reply(mess.nsfw)
 
@@ -119,6 +137,7 @@ export default {
       const base = (typeof api !== 'undefined' && api?.url) ? api.url : 'https://api.alyacore.xyz'
       const key = getKey()
       let videoUrl = query
+      let durationSec = 0
 
       if (!(query.startsWith("http") && query.includes("xvideos.com"))) {
         const apiUrl = `${base}/nsfw/search/xvideos?query=${encodeURIComponent(query)}&key=${key}`
@@ -128,20 +147,44 @@ export default {
         if (!json.status || !json.resultados?.length) return msg.reply("No se encontró el video.")
         const videoInfo = json.resultados[Math.floor(Math.random() * json.resultados.length)]
         videoUrl = videoInfo.url
+        durationSec = parseDurationToSeconds(videoInfo.duration || videoInfo.duration_string || videoInfo.length)
         await msg.reply(`*${videoInfo.title}*\n${videoInfo.duration || ''}\n${videoInfo.url}`)
       }
 
+      if (durationSec > MAX_DURATION_SEC) {
+        return msg.reply(
+          `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
+          `En este servidor el límite seguro es ~${Math.round(MAX_DURATION_SEC / 60)} min (como #ytvideo).\n` +
+          `Prueba uno más corto, o abre el link:\n${videoUrl}`
+        )
+      }
+
       let got = await fetchDl(base, videoUrl, key)
-      if ((!got.json?.status || !got.candidates.length) && key !== FALLBACK_KEY) {
+      if ((!got.json?.status) && key !== FALLBACK_KEY) {
         got = await fetchDl(base, videoUrl, FALLBACK_KEY)
       }
-      if (!got.json?.status || !got.candidates.length) {
+      const resultado = got.resultado || got.json?.resultado
+      if (!durationSec) {
+        durationSec = parseDurationToSeconds(
+          resultado?.duration || resultado?.result?.duration || resultado?.length || ''
+        )
+      }
+      if (durationSec > MAX_DURATION_SEC) {
+        return msg.reply(
+          `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
+          `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min.\n${videoUrl}`
+        )
+      }
+
+      const preferSaferHd = durationSec >= 8 * 60
+      const candidates = pickVideoCandidates(resultado, { preferSaferHd })
+      if (!got.json?.status || !candidates.length) {
         return msg.reply(`No se pudo obtener el video para descargar.\n📌 ${got.json?.message || 'sin enlace en la API'}`)
       }
 
       let buf = null
       let usedLink = null
-      for (const c of got.candidates) {
+      for (const c of candidates) {
         try {
           await msg.reply(`《✧》 Bajando calidad *${c.quality}*…`)
           buf = await downloadBuffer(c.url)
@@ -155,15 +198,21 @@ export default {
       if (!buf?.length) return msg.reply("El archivo vino vacío.")
 
       if (buf.length > MAX_SEND) {
-        await msg.reply(`《✧》 Pesa ${mb(buf.length)} MB. WhatsApp no manda eso; comprimiendo a <64 MB (no se pueden enviar 2GB por WhatsApp)…`)
-        buf = await compressForWhatsApp(buf, `${Date.now()}`)
+        await msg.reply(`《✧》 Pesa ${mb(buf.length)} MB. Comprimiendo a <64 MB (tope 4 min de ffmpeg para no congelar el bot)…`)
+        const compressed = await compressForWhatsApp(buf, `${Date.now()}`)
+        if (!compressed?.length) {
+          return msg.reply(
+            `《✧》 No pude comprimir a tiempo (evité congelar el bot).\nAbre el video aquí:\n${usedLink || candidates[0].url}`
+          )
+        }
+        buf = compressed
       }
 
       if (buf.length > MAX_SEND) {
         return msg.reply(
           `《✧》 Aun comprimido pesa ${mb(buf.length)} MB.\n` +
-          `WhatsApp solo acepta ~64 MB por archivo; *no se pueden enviar 2GB* por el chat.\n` +
-          `Abre el video aquí:\n${usedLink || got.candidates[0].url}`
+          `WhatsApp solo acepta ~64 MB por archivo.\n` +
+          `Abre el video aquí:\n${usedLink || candidates[0].url}`
         )
       }
 
