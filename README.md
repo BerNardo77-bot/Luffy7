@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.15** — Northflank/WhatsApp: `#ytvideo` build **120 HD-long AVC** (H.264 ≤720p, remux `copy`+faststart, tope **20 min**, sin freeze por AV1). Hotfix play2.js. `#ttsearch` con texto plano (no letras fancy Unicode). Guía Northflank: `NORTHFLANK-WHATSAPP.md` en Andrewmisses-olo.
+
 Version **1.1.14** — Railway/Render: pairing por WHATSAPP_NUMBER (logs), Volume /data. Guia: RAILWAY-WHATSAPP.md
 
 Version **1.1.13** — #apk siempre muestra el link; si pesa >90 MB no intenta subir el archivo.
@@ -140,3 +142,12 @@ En el grupo, un admin activa los comandos que vienen apagados:
 No activar antilink ni adminonly: esos bloquean.
 Spotify: dejar un espacio. Ejemplo: #sp https://open.spotify.com/track/...
 Confirmado por el usuario: los tres enable funcionan.
+
+
+## #ytvideo (build 120 HD-long AVC)
+
+- Prefiere H.264 ≤720p (evita AV1 que congela VPS chicos).
+- Remux rápido con ffmpeg `-c copy` + `faststart` cuando ya es H.264.
+- Tope de duración: **20 minutos** (WhatsApp ~64 MB).
+- Misma lógica sincronizada desde Andrewmisses-olo / Northflank.
+- `#ttsearch`: texto plano, sin Unicode fancy.
