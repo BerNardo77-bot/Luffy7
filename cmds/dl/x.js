@@ -9,7 +9,9 @@ const MAX_SEND = 64 * 1024 * 1024 // tope seguro video/imagen en WhatsApp
 const MAX_DOC = 100 * 1024 * 1024 // si pesa más que MAX_SEND pero menos que esto → documento
 const MAX_MEDIA = 10
 const TMP_DIR = path.join(process.cwd(), 'lib', 'system', 'tmp', 'x-dl') // gitignored
-const UA = { 'User-Agent': 'Mozilla/5.0 (Luffy7-WhatsApp; x-downloader)' }
+// UA sin 'Mozilla': api.vxtwitter.com (Cloudflare) da 403 a UAs tipo navegador.
+// video.twimg.com / pbs.twimg.com aceptan cualquier UA, así que se usa el mismo para todo.
+const UA = { 'User-Agent': 'Luffy7-Bot/1.1 (x-downloader)' }
 
 const HOSTS = '(?:www\\.|mobile\\.|m\\.)?(?:x|twitter|fxtwitter|vxtwitter|fixupx|fixvx|twittpr|girlcockx|stupidpenisx)\\.com'
 const STATUS_RE = new RegExp(`https?:\\/\\/${HOSTS}\\/(?:i\\/web\\/|i\\/|[A-Za-z0-9_]{1,20}\\/)?status(?:es)?\\/(\\d{1,25})`, 'i')
@@ -201,7 +203,7 @@ export default {
   category: 'downloader',
   description: 'Descarga videos e imágenes de X/Twitter.',
   run: async ({ msg, sock, args, usedPrefix, command }) => {
-    console.error('[x] Luffy7 v1.1.16 fx/vx + yt-dlp opcional')
+    console.error('[x] Luffy7 v1.1.17 fx/vx + yt-dlp opcional')
     const p = usedPrefix || '#'
     if (!args.length) {
       return msg.reply(`✎ Ingresa un enlace de *X/Twitter*.\n> Ejemplo: *${p}${command || 'x'} https://x.com/usuario/status/123*`)
