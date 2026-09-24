@@ -2,7 +2,7 @@
 
 Bot: Yampi (WhatsApp)
 Repo: https://github.com/BerNardo77-bot/Luffy7
-Version: 1.1.13
+Version: 1.1.17
 Prefijo: #  (ejemplo: #menu #ping #apk)
 
 Usa Termux de F-Droid, no el de Play Store.
@@ -91,7 +91,7 @@ cd ~/Luffy7
 node -p "require('./package.json').version"
 ```
 
-Debe salir: 1.1.13
+Debe salir: 1.1.17
 
 ---
 
@@ -222,7 +222,7 @@ git reset --hard origin/main
 node -p "require('./package.json').version"
 ```
 
-Debe salir 1.1.13
+Debe salir 1.1.17
 
 Si tocaste settings.js, vuelve a poner tu numero en global.owner (el reset lo deja vacio).
 
