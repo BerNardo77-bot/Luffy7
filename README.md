@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.16** — nuevo `#x` / `#twitter` / `#xdownloader` (alias `#xdl`, `#tw`): descarga videos, GIFs e imágenes de X/Twitter (API FxTwitter → VxTwitter → yt-dlp si está instalado), mejor calidad que quepa en WhatsApp, >64 MB como documento (hasta 100 MB), si no, envía el link directo.
+
 Version **1.1.15** — Northflank/WhatsApp: `#ytvideo` build **120 HD-long AVC** (H.264 ≤720p, remux `copy`+faststart, tope **20 min**, sin freeze por AV1). Hotfix play2.js. `#ttsearch` con texto plano (no letras fancy Unicode). Guía Northflank: `NORTHFLANK-WHATSAPP.md` en Andrewmisses-olo.
 
 Version **1.1.14** — Railway/Render: pairing por WHATSAPP_NUMBER (logs), Volume /data. Guia: RAILWAY-WHATSAPP.md
@@ -37,6 +39,7 @@ Proyecto independiente; no afiliado a WhatsApp Inc.
 | `/facebook` | `/fb` | Facebook |
 | `/spotify` | `/sp` | Spotify |
 | `/mediafire` | `/mf` | MediaFire |
+| `/x` | `/twitter`, `/xdownloader`, `/xdl`, `/tw` | X/Twitter (video/GIF/imagen) |
 
 API in `settings.js` (`global.api`): key por defecto `LUFFY-FIX67`.
 
