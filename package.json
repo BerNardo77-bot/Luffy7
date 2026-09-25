@@ -1,6 +1,6 @@
 {
   "name": "luffy7",
-  "version": "1.1.19",
+  "version": "1.1.20",
   "description": "Luffy7 WhatsApp bot Baileys: descargas NSFW gacha stickers, Termux arm64 ready",
   "main": "index.js",
   "type": "module",
@@ -51,7 +51,10 @@
     "syntax-error": "^1.4.0",
     "uuid": "^14.0.0",
     "yt-search": "^2.10.4",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "0.18.12",
+    "pdfkit": "^0.20.2"
   },
   "optionalDependencies": {
     "@img/sharp-wasm32": "^0.33.5"

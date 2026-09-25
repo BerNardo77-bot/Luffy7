@@ -2,7 +2,7 @@
 
 Bot: Yampi (WhatsApp)
 Repo: https://github.com/BerNardo77-bot/Luffy7
-Version: 1.1.19
+Version: 1.1.20
 Prefijo: #  (ejemplo: #menu #ping #apk)
 
 Usa Termux de F-Droid, no el de Play Store.
@@ -91,7 +91,7 @@ cd ~/Luffy7
 node -p "require('./package.json').version"
 ```
 
-Debe salir: 1.1.19
+Debe salir: 1.1.20
 
 ---
 
@@ -218,11 +218,17 @@ git fetch origin
 git reset --hard origin/main
 ```
 
+Instala las dependencias nuevas (desde 1.1.20 `#pdf` convierte páginas web a PDF y usa `@mozilla/readability`, `linkedom` y `pdfkit`, todas JS puro):
+
+```
+npm install
+```
+
 ```
 node -p "require('./package.json').version"
 ```
 
-Debe salir 1.1.19
+Debe salir 1.1.20
 
 Si tocaste settings.js, vuelve a poner tu numero en global.owner (el reset lo deja vacio).
 
