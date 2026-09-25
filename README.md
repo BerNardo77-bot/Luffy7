@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.18** — nuevo `#google` / `#gg` / `#buscar` / `#googlesearch`: búsqueda web sin API key, top 5 resultados (título, resumen corto y link). Fuentes en orden: DuckDuckGo HTML → DuckDuckGo Lite → Bing (filtra resultados irrelevantes) → Wikipedia (es) → Marginalia, cada una con timeout. Ejemplo: `#google algebra de baldor`. Nuevo `#pdf` / `#gdrive` / `#drive` / `#gd` / `#googledrive`: descarga archivos públicos de Google Drive sin API key y los envía como documento con su nombre y tipo reales (PDF como `application/pdf`). Acepta `/file/d/…`, `open?id=`, `uc?id=` y Google Docs/Sheets/Slides (exporta a PDF/XLSX/PPTX); respeta `resourcekey` de archivos viejos `0B…`. Más de 90 MB → solo nombre, tamaño y link. Ejemplo: `#pdf https://drive.google.com/file/d/…/view`.
+
 Version **1.1.17** — fix `#x`: la API VxTwitter daba 403 por el User-Agent tipo navegador; ahora usa `Luffy7-Bot/1.1 (x-downloader)` y el respaldo FxTwitter → VxTwitter vuelve a funcionar.
 
 Version **1.1.16** — nuevo `#x` / `#twitter` / `#xdownloader` (alias `#xdl`, `#tw`): descarga videos, GIFs e imágenes de X/Twitter (API FxTwitter → VxTwitter → yt-dlp si está instalado), mejor calidad que quepa en WhatsApp, >64 MB como documento (hasta 100 MB), si no, envía el link directo.
