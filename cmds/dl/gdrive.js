@@ -4,11 +4,15 @@ import os from 'os'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Transform } from 'stream'
+import dns from 'dns/promises'
+import net from 'net'
 
 // #pdf / #gdrive — descarga archivos PÚBLICOS de Google Drive sin API key.
 // Soporta: drive.google.com/file/d/<id>, open?id=, uc?id=, drive.usercontent.google.com,
 // y docs.google.com/document|spreadsheets|presentation/d/<id> (exporta a pdf / xlsx / pptx).
 // Mantiene el resourcekey (archivos viejos 0B... lo necesitan).
+// También acepta links DIRECTOS a PDF (cualquier http/https que entregue un PDF).
+// Scribd / Studocu / etc. exigen cuenta o suscripción: solo se avisa, no se descarga.
 
 const MAX_SEND = 90 * 1024 * 1024 // misma regla que #apk
 const TIMEOUT = 30000
@@ -231,6 +235,287 @@ async function react(msg, e) {
   try { await msg.react(e) } catch {}
 }
 
+// ── Sitios de documentos con cuenta/suscripción (no se descargan) ──
+const PAYWALL_SITES = [
+  { re: /(^|\.)scribd\.com$/, name: 'Scribd' },
+  { re: /(^|\.)studocu\.com$/, name: 'Studocu' },
+  { re: /(^|\.)pdfcoffee\.com$/, name: 'PDFCOFFEE' },
+  { re: /(^|\.)dokumen\.pub$/, name: 'dokumen.pub' },
+  { re: /(^|\.)fdocuments\.[a-z.]+$/, name: 'fdocuments' },
+  { re: /(^|\.)vdocuments\.[a-z.]+$/, name: 'vdocuments' },
+  { re: /(^|\.)coursehero\.com$/, name: 'Course Hero' },
+  { re: /(^|\.)slideshare\.net$/, name: 'SlideShare' }
+]
+
+export function extractUrl(input = '') {
+  const m = String(input).match(/https?:\/\/[^\s<>"]+/i)
+  if (!m) return null
+  try {
+    const u = new URL(m[0])
+    if (!/^https?:$/.test(u.protocol)) return null
+    return u
+  } catch { return null }
+}
+
+export function paywallSite(input = '') {
+  const u = typeof input === 'string' ? extractUrl(input) : input
+  if (!u) return null
+  const host = u.hostname.toLowerCase().replace(/\.$/, '')
+  return PAYWALL_SITES.find((s) => s.re.test(host))?.name || null
+}
+
+function paywallMessage(site, link) {
+  return (
+    `✖️ *${site}* exige una cuenta o suscripción para descargar documentos, ` +
+    `así que el bot *no puede* descargar desde ahí.\n\n` +
+    `✎ Opciones:\n` +
+    `❖ Busca el título con *#google <título> pdf* para encontrar una versión pública y gratuita.\n` +
+    `❖ Pide a quien lo compartió un link de *Google Drive* o un link *directo* al PDF.\n\n` +
+    `❖ Link › ${link}`
+  )
+}
+
+// ── Links directos a PDF ───────────────────────────────────────────
+// Evita que el bot pida URLs internas (localhost, redes privadas, metadata de la nube).
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number)
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || a >= 224
+  }
+  const x = ip.toLowerCase()
+  if (x.startsWith('::ffff:')) return isPrivateIp(x.slice(7))
+  return x === '::' || x === '::1' || /^f[cd]/.test(x) || /^fe[89ab]/.test(x) || x.startsWith('ff')
+}
+
+async function assertPublicHost(u) {
+  const host = u.hostname.replace(/^\[|\]$/g, '')
+  if (/^localhost$|\.localhost$|\.local$|\.internal$/i.test(host)) throw new Error('Ese link apunta a una dirección interna.')
+  const addrs = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true }).catch(() => {
+    throw new Error('No se pudo resolver el dominio del link.')
+  })
+  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) throw new Error('Ese link apunta a una dirección interna.')
+}
+
+// fetch siguiendo redirecciones a mano (máx. 6) y validando cada destino.
+// Algunos CDN (Cloudflare) rechazan con 403 un UA de navegador que no es navegador;
+// en ese caso se reintenta con un UA simple.
+const UA_PLAIN = 'Mozilla/5.0 (compatible; PDF-Downloader/1.0)'
+const UA_FALLBACK = 'curl/8.5.0'
+
+async function reqDirect(url, { method = 'GET', headers = {}, timeout = TIMEOUT, ua = UA } = {}) {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeout)
+  const h = { 'User-Agent': ua, Accept: 'application/pdf,*/*;q=0.8', 'Accept-Language': 'es-419,es;q=0.9', ...headers }
+  let cur = url
+  try {
+    for (let hop = 0; hop <= 6; hop++) {
+      const u = new URL(cur)
+      if (!/^https?:$/.test(u.protocol)) throw new Error('Redirección no soportada.')
+      await assertPublicHost(u)
+      const res = await fetch(cur, { method, headers: h, redirect: 'manual', signal: ctrl.signal })
+      const loc = res.headers.get('location')
+      if (res.status >= 300 && res.status < 400 && loc) {
+        try { res.body?.resume?.() } catch {}
+        cur = new URL(loc, cur).href
+        continue
+      }
+      return { res, finalUrl: cur, done: () => clearTimeout(t), ctrl }
+    }
+    throw new Error('Demasiadas redirecciones.')
+  } catch (e) {
+    clearTimeout(t)
+    throw e
+  }
+}
+
+// Lee como mucho `n` bytes del cuerpo y corta la conexión.
+async function readHead(res, ctrl, n = 2048) {
+  const chunks = []
+  let got = 0
+  try {
+    for await (const c of res.body) {
+      chunks.push(c)
+      got += c.length
+      if (got >= n) break
+    }
+  } catch {}
+  try { res.body?.on?.('error', () => {}); ctrl.abort() } catch {}
+  return Buffer.concat(chunks).subarray(0, n)
+}
+
+const looksPdf = (buf) => buf.subarray(0, 1024).includes('%PDF')
+const looksHtml = (buf) => /^\s*(<!doctype html|<html|<head|<body|<\?xml[^>]*>\s*<(!doctype )?html)/i.test(buf.toString('utf8', 0, 512).replace(/^\uFEFF/, ''))
+
+export function pdfFileName(cd, finalUrl, origUrl) {
+  let name = parseDisposition(cd)
+  if (!name) {
+    for (const link of [finalUrl, origUrl]) {
+      try {
+        const seg = new URL(link).pathname.split('/').filter(Boolean).pop() || ''
+        const dec = decodeURIComponent(seg)
+        if (dec && /\.pdf$/i.test(dec)) { name = dec; break }
+        if (!name && dec) name = dec
+      } catch {}
+    }
+  }
+  name = String(name || 'documento').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 150) || 'documento'
+  if (!/\.pdf$/i.test(name)) name = name.replace(/\.[a-z0-9]{1,5}$/i, '') + '.pdf'
+  return name
+}
+
+// HEAD + GET parcial: decide si el link entrega un PDF, sin bajarlo entero.
+export async function probeDirect(link) {
+  for (const ua of [UA, UA_PLAIN, UA_FALLBACK]) {
+    const r = await probeDirectWith(link, ua)
+    if (!r.retry) return r
+  }
+  return { ok: false, error: 'El servidor negó el acceso (HTTP 403); puede requerir inicio de sesión.' }
+}
+
+async function probeDirectWith(link, ua) {
+  let headSize = 0
+  let headType = ''
+  let headCd = ''
+  try {
+    const { res, done, ctrl } = await reqDirect(link, { method: 'HEAD', timeout: 15000, ua })
+    try {
+      if (res.ok) {
+        headType = res.headers.get('content-type') || ''
+        headCd = res.headers.get('content-disposition') || ''
+        headSize = Number(res.headers.get('content-length')) || 0
+      }
+      try { ctrl.abort() } catch {}
+    } finally { done() }
+  } catch (e) {
+    if (/interna|resolver/.test(e?.message || '')) return { ok: false, error: e.message }
+    // muchos servidores no aceptan HEAD: se sigue con GET
+  }
+
+  const { res, finalUrl, done, ctrl } = await reqDirect(link, { headers: { Range: 'bytes=0-2047' }, ua })
+  try {
+    if (!res.ok) {
+      try { ctrl.abort() } catch {}
+      if ([403, 429, 503].includes(res.status) && ua !== UA_FALLBACK) return { retry: true }
+      const why = res.status === 404 ? 'El archivo no existe (HTTP 404).'
+        : res.status === 401 || res.status === 403 ? `El servidor negó el acceso (HTTP ${res.status}); puede requerir inicio de sesión.`
+          : `El servidor respondió HTTP ${res.status}.`
+      return { ok: false, error: why }
+    }
+    const ctype = res.headers.get('content-type') || headType
+    const cd = res.headers.get('content-disposition') || headCd
+    const range = res.headers.get('content-range') || ''
+    let size = Number((range.match(/\/(\d+)\s*$/) || [])[1])
+    if (!Number.isFinite(size) || size <= 0) {
+      const cl = Number(res.headers.get('content-length'))
+      size = res.status === 200 && cl > 0 ? cl : headSize
+    }
+    const head = await readHead(res, ctrl)
+    const pathPdf = (() => { try { return /\.pdf$/i.test(new URL(finalUrl).pathname) } catch { return false } })()
+    const ctPdf = /application\/(x-)?pdf/i.test(ctype)
+    const ctHtml = /text\/html|application\/xhtml/i.test(ctype)
+    let isPdf
+    if (looksPdf(head)) isPdf = true
+    else if (looksHtml(head) || ctHtml) isPdf = false
+    else isPdf = ctPdf || pathPdf
+    if (!isPdf) return { ok: false, notPdf: true, html: ctHtml || looksHtml(head), ctype: ctype.split(';')[0].trim() }
+    return { ok: true, url: finalUrl, name: pdfFileName(cd, finalUrl, link), size: size || 0, mimetype: 'application/pdf', ua }
+  } finally {
+    done()
+  }
+}
+
+export async function downloadDirectToFile(url, max = MAX_SEND, ua = UA) {
+  const file = path.join(os.tmpdir(), `pdfdl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
+  const { res, done, ctrl } = await reqDirect(url, { timeout: 10 * 60 * 1000, ua })
+  try {
+    if (!res.ok) throw new Error(`El servidor respondió HTTP ${res.status}.`)
+    let got = 0
+    let tooBig = false
+    const limiter = new Transform({
+      transform(chunk, _e, cb) {
+        got += chunk.length
+        if (got > max) { tooBig = true; ctrl.abort(); return cb(new Error('TOO_BIG')) }
+        cb(null, chunk)
+      }
+    })
+    try {
+      await pipeline(res.body, limiter, fs.createWriteStream(file))
+    } catch (e) {
+      if (tooBig) throw new Error('TOO_BIG')
+      throw e
+    }
+    // Verificación final: debe ser un PDF de verdad
+    const fd = fs.openSync(file, 'r')
+    const buf = Buffer.alloc(1024)
+    const n = fs.readSync(fd, buf, 0, 1024, 0)
+    fs.closeSync(fd)
+    if (!looksPdf(buf.subarray(0, n))) throw new Error('El archivo descargado no es un PDF válido.')
+    return { file, size: got }
+  } catch (e) {
+    try { fs.unlinkSync(file) } catch {}
+    throw e
+  } finally {
+    done()
+  }
+}
+
+const NOT_PDF_MSG = (link, what) =>
+  `✖️ Ese link no es un *PDF directo*${what ? ` (${what})` : ''}.\n\n` +
+  `✎ Envía un link de *Google Drive/Docs* o un link que abra/descargue el PDF directamente, por ejemplo:\n` +
+  `#pdf https://drive.google.com/file/d/XXXXXXXX/view\n` +
+  `#pdf https://sitio.com/archivo.pdf\n\n` +
+  `❖ Link › ${link}`
+
+async function handleDirect(url, { msg, sock }) {
+  const link = url.href
+  await react(msg, '🕒')
+  let tmp = null
+  try {
+    const meta = await probeDirect(link)
+    if (!meta.ok) {
+      await react(msg, '✖️')
+      if (meta.notPdf) return msg.reply(NOT_PDF_MSG(link, meta.html ? 'es una página web' : meta.ctype ? `tipo: ${meta.ctype}` : ''))
+      return msg.reply(`✖️ ${meta.error}\n\n❖ Link › ${link}`)
+    }
+    const caption =
+      `✿ *PDF*\n\n` +
+      `❖ Nombre › ${meta.name}\n` +
+      `❖ Tamaño › ${formatBytes(meta.size)}\n` +
+      `❖ Link › ${link}`
+    if (meta.size > MAX_SEND) {
+      await react(msg, '✔️')
+      return msg.reply(caption + `\n\n✎ Pesa más de 90 MB: no lo subo por WhatsApp (se cuelga).\nAbre el *link* en el navegador para descargarlo.`)
+    }
+    let dl
+    try {
+      dl = await downloadDirectToFile(meta.url, MAX_SEND, meta.ua)
+    } catch (e) {
+      if (e?.message === 'TOO_BIG') {
+        await react(msg, '✔️')
+        return msg.reply(caption.replace(/Tamaño › .*/, 'Tamaño › más de 90 MB') +
+          `\n\n✎ Pesa más de 90 MB: no lo subo por WhatsApp.\nAbre el *link* en el navegador para descargarlo.`)
+      }
+      throw e
+    }
+    tmp = dl.file
+    const finalCaption = meta.size ? caption : caption.replace(/Tamaño › .*/, `Tamaño › ${formatBytes(dl.size)}`)
+    await sock.sendMessage(
+      msg.chat,
+      { document: { url: tmp }, fileName: meta.name, mimetype: 'application/pdf', caption: finalCaption },
+      { quoted: msg }
+    )
+    await react(msg, '✔️')
+  } catch (e) {
+    console.error('[pdf]', e?.message || e)
+    await react(msg, '✖️')
+    await msg.reply(`✖️ No pude descargar el PDF.\n${e?.name === 'AbortError' ? 'Tiempo de espera agotado.' : e?.message || e}\n\n❖ Link › ${link}`)
+  } finally {
+    if (tmp) { try { fs.unlinkSync(tmp) } catch {} }
+  }
+}
+
 export default {
   command: ['pdf', 'gdrive', 'drive', 'gd', 'googledrive'],
   category: 'downloader',
@@ -238,11 +523,14 @@ export default {
     const text = (args || []).join(' ').trim()
     if (!text) {
       return msg.reply(
-        '✿ *GOOGLE DRIVE*\n\n' +
-          '✎ Uso: #pdf <link de Google Drive>\n' +
-          'Ejemplo: #pdf https://drive.google.com/file/d/XXXXXXXX/view\n\n' +
+        '✿ *PDF / GOOGLE DRIVE*\n\n' +
+          '✎ Uso: #pdf <link de Google Drive/Docs o link directo a un PDF>\n' +
+          'Ejemplos:\n' +
+          '#pdf https://drive.google.com/file/d/XXXXXXXX/view\n' +
+          '#pdf https://sitio.com/archivo.pdf\n\n' +
           '❖ También: #gdrive · #drive · #gd\n' +
-          '❖ El archivo debe estar compartido como "Cualquier persona con el enlace".'
+          '❖ En Drive el archivo debe estar compartido como "Cualquier persona con el enlace".\n' +
+          '❖ Scribd, Studocu y similares exigen cuenta: no se pueden descargar.'
       )
     }
 
@@ -251,10 +539,22 @@ export default {
       return msg.reply('✖️ Ese link es de una *carpeta*. Envía el link de un archivo (abre el archivo y copia su enlace).')
     }
     if (!info) {
-      return msg.reply(
-        '✖️ Link inválido. Envía un enlace de Google Drive o Google Docs.\n' +
-          'Ejemplo: #pdf https://drive.google.com/file/d/XXXXXXXX/view'
-      )
+      const url = extractUrl(text)
+      if (!url) {
+        return msg.reply(
+          '✖️ Link inválido. Envía un enlace de Google Drive/Docs o un link directo a un PDF.\n' +
+            'Ejemplo: #pdf https://drive.google.com/file/d/XXXXXXXX/view'
+        )
+      }
+      const site = paywallSite(url)
+      if (site) return msg.reply(paywallMessage(site, url.href))
+      if (/(^|\.)google\.com$/i.test(url.hostname) && /^(drive|docs)\./i.test(url.hostname)) {
+        return msg.reply(
+          '✖️ Link de Google Drive/Docs inválido. Abre el archivo y copia su enlace.\n' +
+            'Ejemplo: #pdf https://drive.google.com/file/d/XXXXXXXX/view'
+        )
+      }
+      return handleDirect(url, { msg, sock })
     }
 
     await react(msg, '🕒')

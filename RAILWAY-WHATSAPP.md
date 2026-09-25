@@ -2,7 +2,7 @@
 
 Repo nube: https://github.com/BerNardo77-bot/Andrewmisses-olo
 Codigo (Termux): https://github.com/BerNardo77-bot/Luffy7
-Version: 1.1.18
+Version: 1.1.19
 
 Esto NO es Telegram. WhatsApp no usa BotFather.
 Hace falta OTRO numero (otro chip / otra cuenta). El de Yampi en Termux se queda.
