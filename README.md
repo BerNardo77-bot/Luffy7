@@ -1,5 +1,17 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.21** — `#google` busca en toda la web también desde servidores (Railway/Northflank): nueva cadena de motores con timeout corto (~7 s cada uno, ~19 s máximo): APIs opcionales (`GOOGLE_CSE_KEY`+`GOOGLE_CSE_CX` o `BRAVE_API_KEY`, van primero si existen) → DuckDuckGo → Seznam → Mwmbl → Marginalia → Bing → Wikipedia. Captcha o página vacía = se salta al siguiente; resultados sin duplicados y la línea *Fuente* muestra el motor que respondió. Sin dependencias nuevas (no hace falta `npm install`).
+
+### Búsqueda web (`#google`) — variables opcionales
+
+Sin configurar nada, `#google` usa buscadores sin API key: DuckDuckGo → Seznam → Mwmbl → Marginalia → Bing → Wikipedia (en servidores DuckDuckGo y Bing suelen pedir captcha; se saltan solos). Si quieres resultados tipo Google/Brave desde el servidor, agrega **una** de estas (van primero cuando existen):
+
+| Variable | Valor |
+|---|---|
+| `GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX` | API key y el ID del buscador de Google Programmable Search (Custom Search JSON API) |
+| `BRAVE_API_KEY` | Token de Brave Search API (https://brave.com/search/api/) |
+| `SEARCH_DISABLE` | (opcional) motores a desactivar, separados por coma: `duckduckgo,seznam,mwmbl,marginalia,bing` |
+
 Version **1.1.20** — `#pdf` ahora convierte *páginas web* (artículos, guías) a PDF: extrae el contenido principal con `@mozilla/readability` + `linkedom` y arma el PDF con `pdfkit` (todo JS puro, sirve en Termux): título, fuente, fecha, encabezados, párrafos, listas y bloques de código en monoespaciado; se envía como documento `titulo-slug.pdf` con tope de 90 MB. Las peticiones ahora usan headers de navegador real (Chrome UA, Accept, Accept-Language es-MX, Referer), si HEAD falla usan GET y ante 5xx/403 reintentan con otro User-Agent; si sigue fallando avisa "El sitio bloqueó la descarga o está caído (HTTP xxx)". Se mantiene Drive, PDF directo, aviso de Scribd/Studocu/SlideShare (no se convierten) y el bloqueo de localhost/IPs privadas también en redirecciones. **Requiere `npm install`** al actualizar.
 
 Version **1.1.19** — nuevo en `#pdf` / `#gdrive`: además de Google Drive/Docs acepta *links directos a PDF* (cualquier http/https que entregue un PDF: se detecta por `Content-Type` o por la firma `%PDF`), sigue redirecciones, lo descarga en streaming con tope de 90 MB y lo envía como documento con el nombre de `Content-Disposition` o de la URL (siempre `.pdf`); más de 90 MB → solo nombre, tamaño y link. Si el link es una página web responde que no es un PDF directo y muestra ejemplos. Scribd, Studocu, pdfcoffee, dokumen.pub, fdocuments y similares exigen cuenta/suscripción: el bot solo avisa y sugiere buscar el título con `#google` o pedir un link de Drive/directo (no se descargan). Ejemplo: `#pdf https://sitio.com/archivo.pdf`.

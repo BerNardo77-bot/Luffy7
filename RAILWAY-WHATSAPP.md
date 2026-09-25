@@ -2,7 +2,7 @@
 
 Repo nube: https://github.com/BerNardo77-bot/Andrewmisses-olo
 Codigo (Termux): https://github.com/BerNardo77-bot/Luffy7
-Version: 1.1.20
+Version: 1.1.21
 
 Esto NO es Telegram. WhatsApp no usa BotFather.
 Hace falta OTRO numero (otro chip / otra cuenta). El de Yampi en Termux se queda.
@@ -62,6 +62,16 @@ Name NO es el nombre del bot.
 Si Railway ya inyecto PORT, dejalo.
 
 Overwrite detected → Cancel si esa variable ya existe.
+
+### Búsqueda web (`#google`) — variables opcionales
+
+Sin configurar nada, `#google` usa buscadores sin API key: DuckDuckGo → Seznam → Mwmbl → Marginalia → Bing → Wikipedia (en servidores DuckDuckGo y Bing suelen pedir captcha; se saltan solos). Si quieres resultados tipo Google/Brave desde el servidor, agrega **una** de estas (van primero cuando existen):
+
+| Variable | Valor |
+|---|---|
+| `GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX` | API key y el ID del buscador de Google Programmable Search (Custom Search JSON API) |
+| `BRAVE_API_KEY` | Token de Brave Search API (https://brave.com/search/api/) |
+| `SEARCH_DISABLE` | (opcional) motores a desactivar, separados por coma: `duckduckgo,seznam,mwmbl,marginalia,bing` |
 
 ---
 
