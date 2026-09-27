@@ -3,6 +3,39 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 
+
+// Valida que el buffer sea una imagen real (JPEG/PNG/GIF/WEBP), no una página HTML
+const esImagen = (buf) => {
+  if (!buf || buf.length < 12) return false;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf.slice(0, 3).toString() === 'GIF') return 'image/gif';
+  if (buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP') return 'image/webp';
+  return false;
+};
+
+// Respaldo directo: API pública de Danbooru solo con imágenes seguras (rating:g)
+const danbooruDirecto = async (kw) => {
+  try {
+    const url = `https://danbooru.donmai.us/posts.json?limit=20&tags=${encodeURIComponent(kw)}+rating:g`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Luffy7Bot/1.0' }, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) throw new Error(`danbooru directo HTTP ${res.status}`);
+    const posts = (await res.json()).filter(p => {
+      const ext = String(p.file_ext || '').toLowerCase();
+      return ['jpg', 'jpeg', 'png', 'webp'].includes(ext) && (p.large_file_url || p.file_url);
+    });
+    for (const post of posts.sort(() => Math.random() - 0.5).slice(0, 3)) {
+      const img = await fetch(post.large_file_url || post.file_url, { headers: { 'User-Agent': 'Luffy7Bot/1.0' }, signal: AbortSignal.timeout(15000) });
+      if (!img.ok) continue;
+      const buf = Buffer.from(await img.arrayBuffer());
+      if (esImagen(buf)) return buf;
+    }
+  } catch (err) {
+    console.error(`Error en danbooru directo (${kw}):`, err.message);
+  }
+  return null;
+};
+
 const obtenerImagen = async (keyword, name = '') => {
   const endpoints = ["safebooru", "gelbooru", "danbooru"];
   const FALLBACK_KEY = 'LUFFY-FIX67';
@@ -23,7 +56,7 @@ const obtenerImagen = async (keyword, name = '') => {
     for (const endpoint of endpoints) {
       try {
         const url = `${api.url}/nsfw/${endpoint}?keyword=${q}&key=${useKey}`;
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
         if (res.status === 401) throw new Error(`${endpoint} HTTP 401`);
         if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
         const ctype = (res.headers.get('content-type') || '').toLowerCase();
@@ -31,8 +64,9 @@ const obtenerImagen = async (keyword, name = '') => {
           const j = await res.json();
           throw new Error(j?.message || `${endpoint} JSON sin imagen`);
         }
-        const buffer = await res.arrayBuffer();
-        if (buffer.byteLength > 0) return Buffer.from(buffer);
+        const buffer = Buffer.from(await res.arrayBuffer());
+        if (!esImagen(buffer)) throw new Error(`${endpoint} no devolvió una imagen válida`);
+        return buffer;
       } catch (err) {
         console.error(`Error en ${endpoint} (${kw}):`, err.message);
         if (String(err.message).includes('401')) return { error: 'api_key' };
@@ -51,6 +85,11 @@ const obtenerImagen = async (keyword, name = '') => {
       if (got && !got.error) return got;
     }
     if (got?.error === 'api_key') continue;
+  }
+
+  for (const kw of variants) {
+    const directo = await danbooruDirecto(kw);
+    if (directo) return directo;
   }
 
   return null;
@@ -145,7 +184,7 @@ if (!imagen || imagen.error) {
 const payload = {
   image: imagen,
   caption: mensaje,
-  mimetype: 'image/jpeg'
+  mimetype: esImagen(imagen) || 'image/jpeg'
 };
 
 const sent = await sock.sendMessage(chatId, payload, { quoted: msg });

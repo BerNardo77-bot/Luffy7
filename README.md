@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.22** — `#rw` ya no manda imágenes rotas: valida que la API devuelva una imagen real (no una página HTML) y, si todas fallan, usa la API pública de Danbooru solo con imágenes seguras. Timeouts de 12 s por petición.
+
 Version **1.1.21** — `#google` busca en toda la web también desde servidores (Railway/Northflank): nueva cadena de motores con timeout corto (~7 s cada uno, ~19 s máximo): APIs opcionales (`GOOGLE_CSE_KEY`+`GOOGLE_CSE_CX` o `BRAVE_API_KEY`, van primero si existen) → DuckDuckGo → Seznam → Mwmbl → Marginalia → Bing → Wikipedia. Captcha o página vacía = se salta al siguiente; resultados sin duplicados y la línea *Fuente* muestra el motor que respondió. Sin dependencias nuevas (no hace falta `npm install`).
 
 ### Búsqueda web (`#google`) — variables opcionales
