@@ -1,5 +1,6 @@
 import fetch from 'node-fetch'
 import { prefijoActual } from '../../lib/prefijo.js';
+import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -29,62 +30,67 @@ export default {
     const base = apiBase()
     let last = 'Sin resultados'
 
+    // 1) Búsqueda: si falla aquí es que de verdad no hubo resultados
+    let top = null
+    for (const key of apiKeys()) {
+      try {
+        const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+        const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+        const json = await res.json().catch(() => ({}))
+        const list = json?.result || json?.data || []
+        if (!json?.status || !Array.isArray(list) || !list.length) {
+          last = json?.message || last
+          continue
+        }
+        top = list.slice(0, 8)
+        break
+      } catch (e) {
+        last = e.message || last
+      }
+    }
+    if (!top) return msg.reply(`✎ No encontré videos para *${query}*.\n${last}`)
+
+    const caption =
+      `❑ *YouTube Search*\n> ✿ ${query}\n\n` +
+      top
+        .map((v, i) => {
+          const title = v.title || '?'
+          const author = v.autor || v.author || v.channel || ''
+          const dur = v.duration || v.timestamp || '?'
+          const views = v.views || '?'
+          const up = v.uploaded || v.ago || ''
+          const link = v.url || ''
+          return (
+            `➩ *${i + 1}. ${title}*\n` +
+            `> ✤ Duración › ${dur}\n` +
+            (up ? `> ✰ Subido › ${up}\n` : '') +
+            `> ꕥ Vistas › ${views}\n` +
+            (author ? `> ❀ Autor › ${author}\n` : '') +
+            `> ❑ Url › ${link}`
+          )
+        })
+        .join('\n\n╾۪〬─ ┄─〬 ׅ┄─ׄ─۪〬 ┈┄─ׄ〬╼\n\n')
+        .slice(0, 3500)
+
+    // 2) Envío: la miniatura se descarga y valida; si falla, los resultados van solo en texto
     try {
-      for (const key of apiKeys()) {
+      const first = top[0] || {}
+      const thumb = await miniaturaYouTube(first.videoId, first.url, first.banner || first.thumbnail || first.image)
+      let enviado = false
+      if (thumb) {
         try {
-          const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
-          const res = await fetch(url)
-          const json = await res.json().catch(() => ({}))
-          const list = json?.result || json?.data || []
-          if (!json?.status || !Array.isArray(list) || !list.length) {
-            last = json?.message || last
-            continue
-          }
-
-          const top = list.slice(0, 8)
-          const caption =
-            `❑ *YouTube Search*\n> ✿ ${query}\n\n` +
-            top
-              .map((v, i) => {
-                const title = v.title || '?'
-                const author = v.autor || v.author || v.channel || ''
-                const dur = v.duration || v.timestamp || '?'
-                const views = v.views || '?'
-                const up = v.uploaded || v.ago || ''
-                const link = v.url || ''
-                return (
-                  `➩ *${i + 1}. ${title}*\n` +
-                  `> ✤ Duración › ${dur}\n` +
-                  (up ? `> ✰ Subido › ${up}\n` : '') +
-                  `> ꕥ Vistas › ${views}\n` +
-                  (author ? `> ❀ Autor › ${author}\n` : '') +
-                  `> ❑ Url › ${link}`
-                )
-              })
-              .join('\n\n╾۪〬─ ┄─〬 ׅ┄─ׄ─۪〬 ┈┄─ׄ〬╼\n\n')
-
-          const thumb = top[0]?.banner || top[0]?.thumbnail || top[0]?.image
-          if (thumb) {
-            await sock.sendMessage(
-              msg.chat,
-              { image: { url: thumb }, caption: caption.slice(0, 3500) },
-              { quoted: msg }
-            )
-          } else {
-            await msg.reply(caption.slice(0, 3500))
-          }
-          try {
-            await sock.sendMessage(msg.chat, { text: '✎ Listo.', edit: status.key })
-          } catch {}
-          return
+          await sock.sendMessage(msg.chat, { image: thumb.buffer, mimetype: thumb.mimetype, caption }, { quoted: msg })
+          enviado = true
         } catch (e) {
-          last = e.message || last
+          console.error('[ytsearch] miniatura no enviada, mando texto:', e?.message || e)
         }
       }
-
-      await msg.reply(`✎ No encontré videos para *${query}*.\n${last}`)
+      if (!enviado) await msg.reply(caption)
+      try {
+        await sock.sendMessage(msg.chat, { text: '✎ Listo.', edit: status.key })
+      } catch {}
     } catch (e) {
-      console.error('[ytsearch]', e)
+      console.error('[ytsearch] envío', e)
       await msg.reply(typeof msgglobal !== 'undefined' ? msgglobal : String(e?.message || e))
     }
   }

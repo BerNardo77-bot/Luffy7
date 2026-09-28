@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.29** — `#ytsearch` ya no dice "No encontré videos" cuando sí hubo resultados: la miniatura se descarga probando `hq720`, `maxresdefault`, `sddefault`, `hqdefault`, `mqdefault` y `default`, y si ninguna sirve manda los resultados en texto. `#play`, `#ytvideo`, `#sp` y `#ams` también descargan y validan la portada antes de enviarla.
+
 Version **1.1.28** — `#img` / `#imagen` ya no manda imágenes rotas (recuadro gris): descarga la imagen, verifica que sea JPEG/PNG real (GIF/WEBP se convierten a JPEG si se puede) y prueba varias fuentes (Google de la API, Bing, Pinterest, DuckDuckGo, Openverse). Si no consigue ninguna, avisa con un mensaje claro.
 
 Version **1.1.27** — El menú y los textos de ayuda/uso muestran el prefijo que está en uso: si cambias el prefijo con `#setbotprefix $`, verás `$menu`, `$rw`, `$apk`, etc. Para volver a los de siempre: `$setbotprefix reset`.

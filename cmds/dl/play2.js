@@ -5,6 +5,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
+import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -563,12 +564,12 @@ try {
 > _──  ִ    ۟  *Descargando video completo con audio…*_`
 
       try {
-        const id = videoInfo.videoId
-        const safeThumb = id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : thumbUrl
-        if (thumbBuffer || safeThumb) {
+        // Miniatura descargada y validada (hq720 → … → default); si no hay, solo texto
+        const thumb = thumbBuffer ? { buffer: thumbBuffer } : await miniaturaYouTube(videoInfo.videoId, url, thumbUrl)
+        if (thumb) {
           await sock.sendMessage(
             msg.chat,
-            { image: thumbBuffer || { url: safeThumb }, caption },
+            { image: thumb.buffer, ...(thumb.mimetype ? { mimetype: thumb.mimetype } : {}), caption },
             { quoted: msg }
           )
         } else {
