@@ -1,28 +1,6 @@
 import db from "#db"
 import { promises as fs } from 'fs';
-import fetch from 'node-fetch';
-
-const obtenerImagen = async (keyword) => {
-  const endpoints = ["safebooru", "gelbooru", "danbooru"];
-
-  for (const endpoint of endpoints) {
-    try {
-      const url = `${api.url}/nsfw/${endpoint}?keyword=${keyword}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
-
-      const buffer = await res.arrayBuffer();
-
-      if (buffer.byteLength > 0) {
-        return Buffer.from(buffer);
-      }
-    } catch (err) {
-      console.error(`Error en ${endpoint}:`, err.message);
-    }
-  }
-
-  return null;
-};
+import { esImagen, obtenerImagen } from '../../lib/gachaImagen.js';
 
 const charactersFilePath = './lib/characters.json'
 
@@ -75,16 +53,18 @@ export default {
 
 ${dev}`
 
-const imagen = await obtenerImagen(character.keyword, character.name);
+const imagen = await obtenerImagen(character.keyword, character.name, character.source, { tag: '[charimage]' });
 
-if (!imagen) {
-  return msg.reply(`✐ No se pudo obtener una imagen para *${character.name}*.`);
+// Sin imagen válida: manda solo el texto en vez de una imagen rota
+if (!imagen || imagen.error || !esImagen(imagen)) {
+  console.error(`[charimage] Sin imagen válida para ${character.name}, enviando solo texto`);
+  return msg.reply(message);
 }
 
 const payload = {
   image: imagen, 
   caption: message, 
-  mimetype: 'image/jpeg'
+  mimetype: esImagen(imagen)
 };
 
 await sock.sendMessage(chatId, payload, { quoted: msg });
