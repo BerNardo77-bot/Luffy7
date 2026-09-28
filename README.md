@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.25** — `#charimage` (`#wimage`, `#cimage`) usa la misma búsqueda de imágenes que `#rw` (Danbooru primero, etiqueta por nombre y serie, API como respaldo y validación de imagen real). Si no hay imagen válida manda solo la ficha en texto en vez de una imagen rota.
+
 Version **1.1.24** — `#rw` busca primero en Danbooru (rápido, solo imágenes seguras) y encuentra la etiqueta correcta por nombre y serie, ej. Karin Uzumaki de Naruto = `karin_(naruto)`. La API lenta queda como respaldo.
 
 Version **1.1.23** — `#rw` prueba hasta 3 personajes: si uno no tiene imagen, saca otro automáticamente sin que tengas que repetir el comando.
