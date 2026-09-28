@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -22,10 +23,11 @@ function sizeMb(size) {
 export default {
   command: ['aptoide', 'apk', 'apkdl'],
   category: 'search',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const query = args.join(' ').trim()
     if (!query) {
-      return msg.reply('✎ Uso: #apk <nombre de la app>\nEjemplo: #apk WhatsApp')
+      return msg.reply(`✎ Uso: ${P}apk <nombre de la app>\nEjemplo: ${P}apk WhatsApp`)
     }
 
     if (/^https?:\/\//i.test(query)) {

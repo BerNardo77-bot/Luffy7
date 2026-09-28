@@ -4,6 +4,7 @@ import fs from "fs"
 import path from "path"
 import { execFile } from "child_process"
 import { promisify } from "util"
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -125,7 +126,8 @@ async function compressForWhatsApp(inputBuf, baseName) {
 export default {
   command: ["xvideos"],
   category: "nsfw",
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     console.error('[xvideos] build 120-safe 20min')
     const chat = await db.getChat(msg.chat)
     if (!chat.nsfw) return msg.reply(mess.nsfw)
@@ -154,7 +156,7 @@ export default {
       if (durationSec > MAX_DURATION_SEC) {
         return msg.reply(
           `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
-          `En este servidor el límite seguro es ~${Math.round(MAX_DURATION_SEC / 60)} min (como #ytvideo).\n` +
+          `En este servidor el límite seguro es ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo).\n` +
           `Prueba uno más corto, o abre el link:\n${videoUrl}`
         )
       }

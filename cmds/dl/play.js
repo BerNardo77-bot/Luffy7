@@ -16,6 +16,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -133,7 +134,8 @@ async function obtenerAudio(videoUrl, title, key) {
 export default {
   command: ['play', 'mp3', 'ytmp3', 'ytaudio', 'playaudio'],
   category: 'downloader',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar')
@@ -189,7 +191,7 @@ export default {
       const key = getApiKey()
       const got = await obtenerAudio(url, title, key)
       if (got.error || !got.dl) {
-        return msg.reply(`《✧》 No se pudo descargar el *audio*.\n📌 ${got.error || 'Sin enlace'}\n\nPrueba: /play https://youtu.be/ID`)
+        return msg.reply(`《✧》 No se pudo descargar el *audio*.\n📌 ${got.error || 'Sin enlace'}\n\nPrueba: ${P}play https://youtu.be/ID`)
       }
 
       await msg.reply('《✧》 Bajando el audio…')

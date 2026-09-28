@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const UA = { 'User-Agent': 'Luffy7-WhatsApp/1.1.15 (wiki)' }
 
@@ -34,10 +35,11 @@ function articleUrl(title) {
 export default {
   command: ['wiki', 'wikipedia'],
   category: 'search',
-  run: async ({ msg, sock, args, text }) => {
+  run: async ({ msg, sock, args, text, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     console.error('[wiki] build 121 summary+link')
     const q = (text || args.join(' ')).trim()
-    if (!q) return msg.reply('✎ Uso: #wiki <tema>\nEjemplo: #wiki Albert Einstein')
+    if (!q) return msg.reply(`✎ Uso: ${P}wiki <tema>\nEjemplo: ${P}wiki Albert Einstein`)
 
     await msg.reply('✎ Buscando en Wikipedia...')
     try {

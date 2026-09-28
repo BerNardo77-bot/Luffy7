@@ -3,6 +3,7 @@ import db from "#db";
 import chalk from 'chalk';
 import moment from 'moment-timezone';
 import fetch from 'node-fetch'; // Asegúrate de tener disponible fetch/axios
+import { prefijoMostrar } from '../lib/prefijo.js';
 
 function getGroupAdmins(participants) {
   return (participants ?? []).filter(p => p.admin === 'admin' || p.admin === 'superadmin').map(p => p.id).filter(Boolean);
@@ -91,7 +92,7 @@ export default async (sock, msg) => {
 
 な⃟   ۟  ─ _Ahora somos *${memberCount}* tripulantes!_
 
-> Puedes usar \`/help\` para ver la lista de comandos.
+> Puedes usar \`${prefijoMostrar(undefined, botSettings)}help\` para ver la lista de comandos.
 > ✐ 𝐋𝐢𝐧𝐤 » ${botSettings.link || ''}`;
           }
 
@@ -138,7 +139,7 @@ export default async (sock, msg) => {
 
 な⃟   ۟  ─ _Ahora somos *${memberCount}* tripulantes!_
 
-> Puedes usar \`/help\` para ver la lista de comandos.
+> Puedes usar \`${prefijoMostrar(undefined, botSettings)}help\` para ver la lista de comandos.
 > ✐ 𝐋𝐢𝐧𝐤 » ${botSettings.link || ''}`;
           }
 

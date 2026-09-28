@@ -1,12 +1,14 @@
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 export default {
   command: ['ams', 'applemusicsearch'],
   category: 'search',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const query = args.join(' ').trim()
     if (!query) {
-      return msg.reply('✎ Uso: #ams <canción o artista>')
+      return msg.reply(`✎ Uso: ${P}ams <canción o artista>`)
     }
 
     await msg.reply('✎ Buscando en Apple Music / iTunes...')

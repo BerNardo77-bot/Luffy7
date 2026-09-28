@@ -1,5 +1,6 @@
 import db from '#db'
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -18,15 +19,16 @@ function apiKeys() {
 export default {
   command: ['imagen', 'img', 'image'],
   category: 'search',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const text = args.join(' ').trim()
-    if (!text) return msg.reply('✎ Uso: #imagen <texto>')
+    if (!text) return msg.reply(`✎ Uso: ${P}imagen <texto>`)
 
     const banned = ['xxx', 'porn', 'porno', 'xnxx', 'xvideos', 'onlyfans', 'hentai']
     const chatData = await db.getChat(msg.chat)
     const nsfwOn = chatData?.nsfw === 1
     if (!nsfwOn && banned.some((w) => text.toLowerCase().includes(w))) {
-      return msg.reply('✤ Este comando no permite búsquedas NSFW (activa #nsfw enable en el grupo).')
+      return msg.reply(`✤ Este comando no permite búsquedas NSFW (activa ${P}nsfw enable en el grupo).`)
     }
 
     await msg.reply('✎ Buscando imagen...')

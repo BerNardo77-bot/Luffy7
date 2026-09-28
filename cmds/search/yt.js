@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -17,10 +18,11 @@ function apiKeys() {
 export default {
   command: ['ytsearch', 'search', 'yts'],
   category: 'search',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const query = args.join(' ').trim()
     if (!query) {
-      return msg.reply('✎ Uso: #ytsearch <texto>\nEjemplo: #ytsearch quien es Anubis')
+      return msg.reply(`✎ Uso: ${P}ytsearch <texto>\nEjemplo: ${P}ytsearch quien es Anubis`)
     }
 
     const status = await msg.reply('✎ Buscando en YouTube...')

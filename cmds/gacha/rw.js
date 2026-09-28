@@ -2,6 +2,7 @@ import db from "#db"
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { esImagen, obtenerImagen } from '../../lib/gachaImagen.js';
+import { prefijoActual } from '../../lib/prefijo.js';
 
 
 const obtenerPersonajes = () => {
@@ -27,7 +28,8 @@ const msToTime = (duration) => {
 export default {
   command: ['rollwaifu', 'roll', 'rw', 'rf'],
   category: 'gacha',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const chatId = msg.chat
     const userId = msg.sender
     const chat = await db.getChat(chatId)
@@ -104,7 +106,7 @@ if (!imagen || imagen.error) {
   if (imagen?.error === 'api_key') {
     return msg.reply('✎ API key inválida. En Termux edita settings.js y pon key: \'LUFFY-FIX67\' luego reinicia el bot.');
   }
-  return msg.reply('✎ No se pudo obtener imagen de 3 personajes seguidos. Prueba #rw de nuevo en un momento.');
+  return msg.reply(`✎ No se pudo obtener imagen de 3 personajes seguidos. Prueba ${P}rw de nuevo en un momento.`);
 }
 
 const payload = {
