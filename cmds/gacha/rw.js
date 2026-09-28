@@ -36,7 +36,49 @@ const danbooruDirecto = async (kw) => {
   return null;
 };
 
-const obtenerImagen = async (keyword, name = '') => {
+// Busca en Danbooru la etiqueta de personaje correcta (ej. "Karin Uzumaki" de Naruto -> karin_(naruto))
+const resolverEtiqueta = async (keyword, name = '', source = '') => {
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const tokens = norm(name).split('_').filter(t => t.length > 1);
+  const fuente = norm(source);
+  const consultas = [...new Set([norm(keyword), ...tokens].filter(Boolean))].slice(0, 4);
+  const candidatos = new Map();
+  for (const q of consultas) {
+    try {
+      const params = new URLSearchParams({ 'search[name_matches]': `${q}*`, 'search[category]': '4', 'search[order]': 'count', limit: '20' });
+      const res = await fetch(`https://danbooru.donmai.us/tags.json?${params}`, { headers: { 'User-Agent': 'Luffy7Bot/1.0' }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) continue;
+      for (const t of await res.json()) if (t.post_count > 0) candidatos.set(t.name, t.post_count);
+    } catch (err) {
+      console.error(`Error buscando etiqueta (${q}):`, err.message);
+    }
+  }
+  let mejor = null;
+  for (const [tag, count] of candidatos) {
+    const partes = tag.split(/[_()]+/).filter(Boolean);
+    const hits = tokens.filter(t => partes.includes(t)).length;
+    // La serie solo cuenta si va entre paréntesis, ej. karin_(naruto); así uzumaki_naruto no pasa por Karin Uzumaki
+    const parentesis = (tag.match(/\(([^)]+)\)/g) || []).join('_').split(/[_()]+/).filter(Boolean);
+    const conFuente = fuente && fuente.split('_').some(f => f.length > 2 && parentesis.includes(f));
+    const valido = (tokens.length && hits === tokens.length) || (hits >= 1 && conFuente);
+    if (!valido) continue;
+    const puntos = hits + (conFuente ? 2 : 0);
+    if (!mejor || puntos > mejor.puntos || (puntos === mejor.puntos && count > mejor.count)) mejor = { tag, puntos, count };
+  }
+  return mejor?.tag || null;
+};
+
+const obtenerImagen = async (keyword, name = '', source = '') => {
+  // 1) Danbooru directo (rápido y solo imágenes seguras)
+  const rapido = await danbooruDirecto(keyword);
+  if (rapido) return rapido;
+  const etiqueta = await resolverEtiqueta(keyword, name, source);
+  if (etiqueta && etiqueta !== keyword) {
+    const porEtiqueta = await danbooruDirecto(etiqueta);
+    if (porEtiqueta) return porEtiqueta;
+  }
+
+  // 2) API del bot como respaldo
   const endpoints = ["safebooru", "gelbooru", "danbooru"];
   const FALLBACK_KEY = 'LUFFY-FIX67';
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim();
@@ -85,11 +127,6 @@ const obtenerImagen = async (keyword, name = '') => {
       if (got && !got.error) return got;
     }
     if (got?.error === 'api_key') continue;
-  }
-
-  for (const kw of variants) {
-    const directo = await danbooruDirecto(kw);
-    if (directo) return directo;
   }
 
   return null;
@@ -150,7 +187,7 @@ export default {
       if (!candidato) continue
       probados.add(candidato.name)
       personaje = candidato
-      imagen = await obtenerImagen(candidato.keyword, candidato.name)
+      imagen = await obtenerImagen(candidato.keyword, candidato.name, candidato.source)
       if (imagen?.error === 'api_key') break
       if (imagen && !imagen.error) break
       console.error(`[rw] Sin imagen para ${candidato.name}, probando otro personaje (${intento + 1}/3)`)

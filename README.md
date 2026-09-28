@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.24** — `#rw` busca primero en Danbooru (rápido, solo imágenes seguras) y encuentra la etiqueta correcta por nombre y serie, ej. Karin Uzumaki de Naruto = `karin_(naruto)`. La API lenta queda como respaldo.
+
 Version **1.1.23** — `#rw` prueba hasta 3 personajes: si uno no tiene imagen, saca otro automáticamente sin que tengas que repetir el comando.
 
 Version **1.1.22** — `#rw` ya no manda imágenes rotas: valida que la API devuelva una imagen real (no una página HTML) y, si todas fallan, usa la API pública de Danbooru solo con imágenes seguras. Timeouts de 12 s por petición.
