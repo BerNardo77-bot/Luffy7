@@ -136,7 +136,25 @@ export default {
     }
 
     const personajes = obtenerPersonajes()
-    const personaje = personajes[Math.floor(Math.random() * personajes.length)]
+    if (!personajes.length) return msg.reply('《✤》 No se encontró ningún personaje disponible.')
+
+    // Hasta 3 personajes: si uno no tiene imagen, se prueba otro automáticamente
+    let personaje = null
+    let imagen = null
+    const probados = new Set()
+    for (let intento = 0; intento < 3; intento++) {
+      let candidato
+      do {
+        candidato = personajes[Math.floor(Math.random() * personajes.length)]
+      } while (probados.has(candidato?.name) && probados.size < personajes.length)
+      if (!candidato) continue
+      probados.add(candidato.name)
+      personaje = candidato
+      imagen = await obtenerImagen(candidato.keyword, candidato.name)
+      if (imagen?.error === 'api_key') break
+      if (imagen && !imagen.error) break
+      console.error(`[rw] Sin imagen para ${candidato.name}, probando otro personaje (${intento + 1}/3)`)
+    }
     if (!personaje) return msg.reply('《✤》 No se encontró ningún personaje disponible.')
 
     const reservado = Array.isArray(chat.personajesReservados)
@@ -171,14 +189,13 @@ export default {
 
 ${dev}`
 
-const imagen = await obtenerImagen(personaje.keyword, personaje.name);
 
 if (!imagen || imagen.error) {
   await db.updateChatUser(chatId, userId, 'rwCooldown', 0)
   if (imagen?.error === 'api_key') {
     return msg.reply('✎ API key inválida. En Termux edita settings.js y pon key: \'LUFFY-FIX67\' luego reinicia el bot.');
   }
-  return msg.reply(`✎ No se pudo obtener una imagen para *${personaje.name}*. Prueba /rw de nuevo.`);
+  return msg.reply('✎ No se pudo obtener imagen de 3 personajes seguidos. Prueba #rw de nuevo en un momento.');
 }
 
 const payload = {
