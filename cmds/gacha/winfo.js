@@ -1,5 +1,6 @@
 import db from "#db"
 import { promises as fs } from 'fs';
+import { esImagen, obtenerImagen } from '../../lib/gachaImagen.js';
 
 const charactersFilePath = './lib/characters.json';
 
@@ -102,6 +103,21 @@ export default {
 𖹭  ׄ  ְ ✧ Puesto › *#${rank}*
 𖹭  ׄ  ְ ★ Último voto › *${timeAgo}*`;
 
-    await msg.reply(message);
+    // Imagen del personaje (misma búsqueda que #rw / #charimage); si no hay imagen válida, solo texto
+    let imagen = null;
+    try {
+      imagen = await obtenerImagen(character.keyword, character.name, character.source, { tag: '[charinfo]' });
+    } catch (err) {
+      console.error(`[charinfo] Error buscando imagen de ${character.name}:`, err.message);
+    }
+    const mimetype = imagen && !imagen.error ? esImagen(imagen) : false;
+    if (!mimetype) return msg.reply(message);
+
+    try {
+      await sock.sendMessage(chatId, { image: imagen, caption: message, mimetype }, { quoted: msg });
+    } catch (err) {
+      console.error(`[charinfo] No se pudo enviar la imagen de ${character.name}, enviando solo texto:`, err.message);
+      await msg.reply(message);
+    }
   }
 };
