@@ -4,6 +4,7 @@ import path from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getBuffer } from '#serialize'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -409,7 +410,8 @@ async function descargarMp4(videoUrl, titleQuery, key) {
 export default {
   command: ['play2', 'mp4', 'ytmp4', 'ytvideo', 'playvideo'],
   category: 'downloader',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     console.error('[ytvideo] build 120 HD-long AVC')
     try {
       if (!args[0]) {
@@ -647,7 +649,7 @@ try {
 ` +
           `YouTube indica ~${expectedSec ? Math.round(expectedSec) + 's' : 'desconocido'}; el archivo trae ~${Math.round(dur)}s.
 ` +
-          `Prueba otro enlace (oficial/trailer) o /play para audio.
+          `Prueba otro enlace (oficial/trailer) o ${P}play para audio.
 🔗 ${url}`
         )
       }

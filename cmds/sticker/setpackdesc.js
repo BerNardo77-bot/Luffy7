@@ -1,8 +1,10 @@
 import db from "#db"
+import { prefijoActual } from '../../lib/prefijo.js';
 export default {
   command: ['setstickerpackdesc', 'setpackdesc', 'packdesc'],
   category: 'stickers',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     try {
       if (!args.length) {
         return msg.reply('《✧》Especifica el nombre del paquete y la nueva descripción.')
@@ -10,7 +12,7 @@ export default {
       const fullText = args.join(' ').trim()
       const parts = fullText.split(/\||•|\//)
       if (parts.length < 2) {
-        return msg.reply('《✧》Especifica el nombre del paquete y la nueva descripción.\n> Ejemplo: */packdesc NombreDelPaquete | Nueva Descripción*')
+        return msg.reply(`《✧》Especifica el nombre del paquete y la nueva descripción.\n> Ejemplo: *${P}packdesc NombreDelPaquete | Nueva Descripción*`)
       }
       const packName = parts[0].trim()
       const desc = parts[1].trim()

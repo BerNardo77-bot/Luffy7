@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -17,10 +18,11 @@ function apiKeys() {
 export default {
   command: ['pinterest', 'pin'],
   category: 'search',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const text = args.join(' ').trim()
     if (!text) {
-      return msg.reply('✎ Uso: #pin <texto> o #pin <link de Pinterest>')
+      return msg.reply(`✎ Uso: ${P}pin <texto> o ${P}pin <link de Pinterest>`)
     }
 
     const base = apiBase()

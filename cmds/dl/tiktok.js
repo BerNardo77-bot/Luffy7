@@ -5,6 +5,7 @@ import { promisify } from 'util'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -118,10 +119,10 @@ async function ytDlpTiktok(videoUrl) {
   return buf
 }
 
-function tooLongReply(sec, link) {
+function tooLongReply(sec, link, P = '#') {
   return (
     `《✧》 Ese TikTok dura ~${Math.round(sec / 60)} min.\n` +
-    `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como #ytvideo).\n` +
+    `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo).\n` +
     (link ? `Abre el link:\n${link}` : '')
   )
 }
@@ -129,7 +130,8 @@ function tooLongReply(sec, link) {
 export default {
   command: ['tiktok', 'tt', 'tk', 'tiktokdl'],
   category: 'downloader',
-  run: async ({ msg, sock, args, command }) => {
+  run: async ({ msg, sock, args, command, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     console.error('[tiktok] build 120-safe 20min')
 
     if (!args.length) {
@@ -170,7 +172,7 @@ export default {
             console.error('[tiktok] yt-dlp', e)
             const m = String(e?.message || e)
             if (m.startsWith('TOO_LONG:')) {
-              return msg.reply(tooLongReply(Number(m.split(':')[1]) || 0, url))
+              return msg.reply(tooLongReply(Number(m.split(':')[1]) || 0, url, P))
             }
             if (m.startsWith('TOO_HEAVY:')) {
               return msg.reply(`《✧》 El archivo pesa ~${m.split(':')[1]} MB y no cabe en WhatsApp (~64 MB).\n${url}`)
@@ -197,7 +199,7 @@ export default {
         const tiktokLink = `https://www.tiktok.com/@${author.unique_id}/video/${id}`
 
         if (!isMp3 && durationSec > MAX_DURATION_SEC) {
-          return msg.reply(tooLongReply(durationSec, tiktokLink || url))
+          return msg.reply(tooLongReply(durationSec, tiktokLink || url, P))
         }
 
         const caption =
@@ -245,7 +247,7 @@ export default {
           const tiktokUrl = `https://www.tiktok.com/@${chosen.author.unique_id}/video/${chosen.id}`
           const dur0 = parseDurationToSeconds(chosen.duration || '')
           if (dur0 > MAX_DURATION_SEC) {
-            return msg.reply(tooLongReply(dur0, tiktokUrl))
+            return msg.reply(tooLongReply(dur0, tiktokUrl, P))
           }
           const apiUrl = `${apiBase()}/dl/tiktokmp3?url=${encodeURIComponent(tiktokUrl)}&key=${encodeURIComponent(apiKeys()[0])}`
 

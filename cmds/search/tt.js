@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -17,9 +18,10 @@ function apiKeys() {
 export default {
   command: ['tiktoksearch', 'ttsearch', 'tts'],
   category: 'search',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const query = args.join(' ').trim()
-    if (!query) return msg.reply('✎ Uso: #ttsearch <texto>')
+    if (!query) return msg.reply(`✎ Uso: ${P}ttsearch <texto>`)
 
     await msg.reply('✎ Buscando en TikTok...')
     const base = apiBase()

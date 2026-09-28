@@ -1,5 +1,6 @@
 import db from "#db"
 import fetch from "node-fetch"
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const MAX_DURATION_SEC = 20 * 60 // mismo tope seguro que #ytvideo / #xvideos
 
@@ -31,7 +32,8 @@ function apiKey() {
 export default {
   command: ["xnxx"],
   category: "nsfw",
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     console.error('[xnxx] build 120-safe 20min')
     const chat = await db.getChat(msg.chat)
 
@@ -79,7 +81,7 @@ export default {
       if (durationSec > MAX_DURATION_SEC) {
         return msg.reply(
           `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
-          `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como #ytvideo).\n` +
+          `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo).\n` +
           `Abre el link:\n${videoUrl}`
         )
       }

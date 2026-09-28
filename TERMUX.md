@@ -2,8 +2,8 @@
 
 Bot: Yampi (WhatsApp)
 Repo: https://github.com/BerNardo77-bot/Luffy7
-Version: 1.1.26
-Prefijo: #  (ejemplo: #menu #ping #apk)
+Version: 1.1.27
+Prefijo: # por defecto (ejemplo: #menu #ping #apk). Se cambia con #setbotprefix $
 
 Usa Termux de F-Droid, no el de Play Store.
 Cada bloque es un comando. Copialo, pegalo y da Enter. Espera a que termine antes del siguiente.
@@ -91,7 +91,7 @@ cd ~/Luffy7
 node -p "require('./package.json').version"
 ```
 
-Debe salir: 1.1.26
+Debe salir: 1.1.27
 
 ---
 
@@ -211,11 +211,7 @@ pkill -9 -f node || true
 ```
 
 ```
-git fetch origin
-```
-
-```
-git reset --hard origin/main
+git pull
 ```
 
 Instala las dependencias nuevas (desde 1.1.20 `#pdf` convierte páginas web a PDF y usa `@mozilla/readability`, `linkedom` y `pdfkit`, todas JS puro):
@@ -228,9 +224,11 @@ npm install
 node -p "require('./package.json').version"
 ```
 
-Debe salir 1.1.26
+Debe salir 1.1.27
 
-Si tocaste settings.js, vuelve a poner tu numero en global.owner (el reset lo deja vacio).
+`git pull` conserva tu settings.js (tu numero en global.owner y tu key se quedan). Si `git pull` se queja de cambios locales, usa `git stash`, luego `git pull` y despues `git stash pop`.
+
+Prefijo: puedes cambiarlo desde WhatsApp con `#setbotprefix $` (el menu y los textos de ayuda muestran el prefijo que uses, ej. `$menu`). Para volver a los de siempre: `<prefijo>setbotprefix reset` (ej. `$setbotprefix reset`).
 
 ```
 npm start
@@ -252,4 +250,4 @@ Se desconecto y pide QR otra vez: borraste Sessions o cerraste el dispositivo vi
 
 Spotify: deja un espacio. Ejemplo: #sp https://open.spotify.com/track/...
 
-No uses curl a raw.githubusercontent.com (429). Actualiza solo con git fetch + git reset --hard origin/main.
+No uses curl a raw.githubusercontent.com (429). Actualiza solo con git pull.

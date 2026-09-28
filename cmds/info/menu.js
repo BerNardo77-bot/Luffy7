@@ -1,6 +1,7 @@
 import moment from 'moment-timezone';
 import db from "#db";
 import { commands } from '../../lib/system/comandos.js';
+import { prefijoActual } from '../../lib/prefijo.js';
 
 const newsletterJid = '120363420846835529@newsletter';
 const newsletterName = '⿻̸̷᮫̼̼፝͠🥨᪲ 𝐋𝗎𝖿𝖿𝗒 𝐆͢𝖾𝖺⃜𝗋 𝟧 ׅ ࿔𔗨̶🌊';
@@ -16,7 +17,8 @@ function clockString(ms) {
 export default {
     command: ['menu', 'help'],
     category: 'info',
-    run: async ({ msg, sock, usedPrefix: prefix }) => {
+    run: async ({ msg, sock, usedPrefix }) => {
+        const prefix = await prefijoActual({ sock, usedPrefix });
         const name = msg.pushName || (await sock.getName(msg.sender));
         const uptime = clockString(Date.now() - (sock.uptime || Date.now()));
         const totalreg = Object.keys(await db.getUser()).length;

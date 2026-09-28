@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.27** — El menú y los textos de ayuda/uso muestran el prefijo que está en uso: si cambias el prefijo con `#setbotprefix $`, verás `$menu`, `$rw`, `$apk`, etc. Para volver a los de siempre: `$setbotprefix reset`.
+
 Version **1.1.26** — `#charinfo` (`#winfo`, `#cinfo`) ahora manda la imagen del personaje con la ficha como texto, usando la misma búsqueda que `#rw`. Si no hay imagen válida manda la ficha en texto como antes.
 
 Version **1.1.25** — `#charimage` (`#wimage`, `#cimage`) usa la misma búsqueda de imágenes que `#rw` (Danbooru primero, etiqueta por nombre y serie, API como respaldo y validación de imagen real). Si no hay imagen válida manda solo la ficha en texto en vez de una imagen rota.

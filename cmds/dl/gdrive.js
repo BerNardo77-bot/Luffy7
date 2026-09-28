@@ -6,6 +6,7 @@ import { pipeline } from 'stream/promises'
 import { Transform } from 'stream'
 import dns from 'dns/promises'
 import net from 'net'
+import { prefijoActual } from '../../lib/prefijo.js';
 
 // #pdf / #gdrive — descarga archivos PÚBLICOS de Google Drive sin API key.
 // Soporta: drive.google.com/file/d/<id>, open?id=, uc?id=, drive.usercontent.google.com,
@@ -267,12 +268,12 @@ export function paywallSite(input = '') {
   return PAYWALL_SITES.find((s) => s.re.test(host))?.name || null
 }
 
-function paywallMessage(site, link) {
+function paywallMessage(site, link, P = '#') {
   return (
     `✖️ *${site}* exige una cuenta o suscripción para descargar documentos, ` +
     `así que el bot *no puede* descargar desde ahí.\n\n` +
     `✎ Opciones:\n` +
-    `❖ Busca el título con *#google <título> pdf* para encontrar una versión pública y gratuita.\n` +
+    `❖ Busca el título con *${P}google <título> pdf* para encontrar una versión pública y gratuita.\n` +
     `❖ Pide a quien lo compartió un link de *Google Drive* o un link *directo* al PDF.\n\n` +
     `❖ Link › ${link}`
   )
@@ -555,18 +556,18 @@ export async function webPageToPdf(meta, max = MAX_SEND) {
   return { ok: true, file, fileName: r.fileName, title: r.title, size: r.size }
 }
 
-const NOT_PDF_MSG = (link, what) =>
+const NOT_PDF_MSG = (link, what, P = '#') =>
   `✖️ Ese link no es un *PDF* ni una *página web*${what ? ` (${what})` : ''}.\n\n` +
   `✎ Envía un link de *Google Drive/Docs*, un link directo al PDF o el link de un artículo, por ejemplo:\n` +
-  `#pdf https://drive.google.com/file/d/XXXXXXXX/view\n` +
-  `#pdf https://sitio.com/archivo.pdf\n\n` +
+  `${P}pdf https://drive.google.com/file/d/XXXXXXXX/view\n` +
+  `${P}pdf https://sitio.com/archivo.pdf\n\n` +
   `❖ Link › ${link}`
 
-async function sendWebPdf(meta, link, { msg, sock }) {
+async function sendWebPdf(meta, link, { msg, sock, P = '#' }) {
   const site = paywallSite(meta.finalUrl)
   if (site) {
     await react(msg, '✖️')
-    return msg.reply(paywallMessage(site, link))
+    return msg.reply(paywallMessage(site, link, P))
   }
   let conv
   try {
@@ -597,22 +598,22 @@ async function sendWebPdf(meta, link, { msg, sock }) {
   }
 }
 
-async function handleDirect(url, { msg, sock }) {
+async function handleDirect(url, { msg, sock, P = '#' }) {
   const link = url.href
   await react(msg, '🕒')
   let tmp = null
   try {
     const meta = await probeDirect(link)
     if (!meta.ok) {
-      if (meta.notPdf && meta.html) return sendWebPdf(meta, link, { msg, sock })
+      if (meta.notPdf && meta.html) return sendWebPdf(meta, link, { msg, sock, P })
       await react(msg, '✖️')
-      if (meta.notPdf) return msg.reply(NOT_PDF_MSG(link, meta.ctype ? `tipo: ${meta.ctype}` : ''))
+      if (meta.notPdf) return msg.reply(NOT_PDF_MSG(link, meta.ctype ? `tipo: ${meta.ctype}` : '', P))
       return msg.reply(`✖️ ${meta.error}\n\n❖ Link › ${link}`)
     }
     const site = paywallSite(meta.url)
     if (site) {
       await react(msg, '✖️')
-      return msg.reply(paywallMessage(site, link))
+      return msg.reply(paywallMessage(site, link, P))
     }
     const caption =
       `✿ *PDF*\n\n` +
@@ -654,18 +655,19 @@ async function handleDirect(url, { msg, sock }) {
 export default {
   command: ['pdf', 'gdrive', 'drive', 'gd', 'googledrive'],
   category: 'downloader',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     const text = (args || []).join(' ').trim()
     if (!text) {
       return msg.reply(
         '✿ *PDF / GOOGLE DRIVE*\n\n' +
-          '✎ Uso: #pdf <link de Google Drive/Docs, link directo a un PDF o página web>\n' +
+          `✎ Uso: ${P}pdf <link de Google Drive/Docs, link directo a un PDF o página web>\n` +
           'Ejemplos:\n' +
-          '#pdf https://drive.google.com/file/d/XXXXXXXX/view\n' +
-          '#pdf https://sitio.com/archivo.pdf\n' +
-          '#pdf https://sitio.com/articulo-o-guia\n\n' +
+          `${P}pdf https://drive.google.com/file/d/XXXXXXXX/view\n` +
+          `${P}pdf https://sitio.com/archivo.pdf\n` +
+          `${P}pdf https://sitio.com/articulo-o-guia\n\n` +
           '❖ Si mandas una *página web* (artículo, guía), la convierto a PDF con su texto.\n' +
-          '❖ También: #gdrive · #drive · #gd\n' +
+          `❖ También: ${P}gdrive · ${P}drive · ${P}gd\n` +
           '❖ En Drive el archivo debe estar compartido como "Cualquier persona con el enlace".\n' +
           '❖ Scribd, Studocu y similares exigen cuenta: no se pueden descargar.'
       )
@@ -680,18 +682,18 @@ export default {
       if (!url) {
         return msg.reply(
           '✖️ Link inválido. Envía un enlace de Google Drive/Docs, un link directo a un PDF o el link de una página web.\n' +
-            'Ejemplo: #pdf https://drive.google.com/file/d/XXXXXXXX/view'
+            `Ejemplo: ${P}pdf https://drive.google.com/file/d/XXXXXXXX/view`
         )
       }
       const site = paywallSite(url)
-      if (site) return msg.reply(paywallMessage(site, url.href))
+      if (site) return msg.reply(paywallMessage(site, url.href, P))
       if (/(^|\.)google\.com$/i.test(url.hostname) && /^(drive|docs)\./i.test(url.hostname)) {
         return msg.reply(
           '✖️ Link de Google Drive/Docs inválido. Abre el archivo y copia su enlace.\n' +
-            'Ejemplo: #pdf https://drive.google.com/file/d/XXXXXXXX/view'
+            `Ejemplo: ${P}pdf https://drive.google.com/file/d/XXXXXXXX/view`
         )
       }
-      return handleDirect(url, { msg, sock })
+      return handleDirect(url, { msg, sock, P })
     }
 
     await react(msg, '🕒')

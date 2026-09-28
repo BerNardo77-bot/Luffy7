@@ -1,8 +1,10 @@
 import db from "#db"
+import { prefijoActual } from '../../lib/prefijo.js';
 export default {
   command: ['newpack', 'newstickerpack'],
   category: 'stickers',
-  run: async ({ msg, sock, args }) => {
+  run: async ({ msg, sock, args, usedPrefix }) => {
+    const P = await prefijoActual({ sock, usedPrefix })
     try {
       const settings = await db.getSettings(sock.user.id.split(':')[0] + '@s.whatsapp.net') || {}
       const userId = await db.getUser(msg.sender)
@@ -20,7 +22,7 @@ export default {
       packs.push(newPack)
       await db.updateStickersPack(msg.sender, 'packs', packs)
       msg.reply(`《✧》El paquete de stickers \`${name}\` ha sido creado exitosamente!
-> Puedes agregar stickers respondiendo a uno usando */addsticker ${name}*!`)
+> Puedes agregar stickers respondiendo a uno usando *${P}addsticker ${name}*!`)
     } catch (e) {
       msg.reply(msgglobal);
     }
