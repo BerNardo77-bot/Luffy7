@@ -17,6 +17,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
+import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 
@@ -157,10 +158,6 @@ export default {
       const { title, author, timestamp: duration, views, url, image, videoId } = video
       const vistas = (views || 0).toLocaleString()
       const canal = author?.name || author || 'Desconocido'
-      // Thumbs custom de yt a menudo fallan ("Failed to fetch stream"); usar hqdefault
-      const safeThumb = videoId
-        ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
-        : ''
 
       const caption = `【　✿　】 _\`୨୧  Download\` ───── *${title}*_
 
@@ -174,10 +171,12 @@ export default {
 
       // Nunca tumbar #play por la miniatura
       try {
-        if (safeThumb) {
+        // Miniatura descargada y validada (hq720 → … → default); si no hay, solo texto
+        const thumb = await miniaturaYouTube(videoId, url, image)
+        if (thumb) {
           await sock.sendMessage(
             msg.chat,
-            { image: { url: safeThumb }, caption },
+            { image: thumb.buffer, mimetype: thumb.mimetype, caption },
             { quoted: msg }
           )
         } else {

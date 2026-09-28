@@ -1,5 +1,6 @@
 import fetch from 'node-fetch'
 import { prefijoActual } from '../../lib/prefijo.js';
+import { bajarImagen } from '../../lib/ytMiniatura.js';
 
 export default {
   command: ['ams', 'applemusicsearch'],
@@ -35,10 +36,12 @@ export default {
 
       const first = list[0]
       const thumb = first.artworkUrl100?.replace('100x100bb', '600x600bb') || first.artworkUrl100
-      if (thumb) {
+      // Portada descargada y validada; si falla, solo texto
+      const portada = thumb ? await bajarImagen(thumb) : null
+      if (portada) {
         await sock.sendMessage(
           msg.chat,
-          { image: { url: thumb }, caption: texto.slice(0, 3500) },
+          { image: portada.buffer, mimetype: portada.mimetype, caption: texto.slice(0, 3500) },
           { quoted: msg }
         )
       } else {

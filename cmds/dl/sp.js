@@ -1,6 +1,7 @@
 import db from "#db"
 import fetch from 'node-fetch'
 import { getBuffer } from "#serialize"
+import { bajarImagen } from '../../lib/ytMiniatura.js'
 
 export default {
   command: ['sp', 'spotify'],
@@ -46,7 +47,15 @@ export default {
 
       let yi = songInfo.image || songInfo.cover
 
-      await sock.sendMessage(msg.chat, { image: { url: yi }, caption }, { quoted: msg })
+      // Portada descargada y validada; si falla, solo el texto (y sigue con el audio)
+      const portada = yi ? await bajarImagen(yi) : null
+      try {
+        if (portada) await sock.sendMessage(msg.chat, { image: portada.buffer, mimetype: portada.mimetype, caption }, { quoted: msg })
+        else await msg.reply(caption)
+      } catch (e) {
+        console.error('[sp] portada', e?.message || e)
+        await msg.reply(caption).catch(() => {})
+      }
 
       const resAudio = await fetch(`${api.url}/dl/spotify?url=${encodeURIComponent(url)}&key=${encodeURIComponent(api.key || "LUFFY-FIX67")}`)
       const resultAudio = await resAudio.json()
