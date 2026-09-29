@@ -3,6 +3,31 @@ import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
+// Cuántos resultados se mandan (cada uno es un mensaje con su miniatura)
+const MAX_RESULTADOS = 5
+// Pausa entre mensajes para no hacer spam ni chocar con el límite de WhatsApp
+const PAUSA_MS = 700
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Pie de foto de un resultado
+function textoResultado(v, i, total) {
+  const title = v.title || '?'
+  const author = v.autor || v.author?.name || v.author || v.channel || ''
+  const dur = v.duration || v.timestamp || ''
+  // Los directos llegan con 0 vistas y sin duración: no se muestran esos campos
+  const views = v.views && String(v.views) !== '0' ? v.views : ''
+  const up = v.uploaded || v.ago || ''
+  const link = v.url || ''
+  return (
+    `➩ *${i + 1}/${total}. ${title}*\n` +
+    (dur ? `> ✤ Duración › ${dur}\n` : '') +
+    (author ? `> ❀ Canal › ${author}\n` : '') +
+    (views ? `> ꕥ Vistas › ${views}\n` : '') +
+    (up ? `> ✰ Subido › ${up}\n` : '') +
+    `> ❑ Enlace › ${link}`
+  ).slice(0, 1000)
+}
 
 function apiBase() {
   return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
@@ -42,7 +67,7 @@ export default {
           last = json?.message || last
           continue
         }
-        top = list.slice(0, 8)
+        top = list.slice(0, MAX_RESULTADOS)
         break
       } catch (e) {
         last = e.message || last
@@ -50,45 +75,33 @@ export default {
     }
     if (!top) return msg.reply(`✎ No encontré videos para *${query}*.\n${last}`)
 
-    const caption =
-      `❑ *YouTube Search*\n> ✿ ${query}\n\n` +
-      top
-        .map((v, i) => {
-          const title = v.title || '?'
-          const author = v.autor || v.author || v.channel || ''
-          const dur = v.duration || v.timestamp || '?'
-          const views = v.views || '?'
-          const up = v.uploaded || v.ago || ''
-          const link = v.url || ''
-          return (
-            `➩ *${i + 1}. ${title}*\n` +
-            `> ✤ Duración › ${dur}\n` +
-            (up ? `> ✰ Subido › ${up}\n` : '') +
-            `> ꕥ Vistas › ${views}\n` +
-            (author ? `> ❀ Autor › ${author}\n` : '') +
-            `> ❑ Url › ${link}`
-          )
-        })
-        .join('\n\n╾۪〬─ ┄─〬 ׅ┄─ׄ─۪〬 ┈┄─ׄ〬╼\n\n')
-        .slice(0, 3500)
-
-    // 2) Envío: la miniatura se descarga y valida; si falla, los resultados van solo en texto
+    // 2) Envío: un mensaje por resultado. Miniaturas en paralelo; si una falla, ese resultado va en texto
     try {
-      const first = top[0] || {}
-      const thumb = await miniaturaYouTube(first.videoId, first.url, first.banner || first.thumbnail || first.image)
-      let enviado = false
-      if (thumb) {
+      const miniaturas = await Promise.all(
+        top.map((v) => miniaturaYouTube(v.videoId, v.url, v.banner || v.thumbnail || v.image).catch(() => null))
+      )
+      try {
+        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} para *${query}*:`, edit: status.key })
+      } catch {}
+
+      for (let i = 0; i < top.length; i++) {
+        if (i > 0) await esperar(PAUSA_MS)
+        const caption = textoResultado(top[i], i, top.length)
+        const thumb = miniaturas[i]
         try {
-          await sock.sendMessage(msg.chat, { image: thumb.buffer, mimetype: thumb.mimetype, caption }, { quoted: msg })
-          enviado = true
+          if (thumb) {
+            await sock.sendMessage(msg.chat, { image: thumb.buffer, mimetype: thumb.mimetype, caption }, { quoted: msg })
+            continue
+          }
         } catch (e) {
-          console.error('[ytsearch] miniatura no enviada, mando texto:', e?.message || e)
+          console.error(`[ytsearch] miniatura ${i + 1} no enviada, mando texto:`, e?.message || e)
+        }
+        try {
+          await sock.sendMessage(msg.chat, { text: caption }, { quoted: msg })
+        } catch (e) {
+          console.error(`[ytsearch] resultado ${i + 1} no enviado:`, e?.message || e)
         }
       }
-      if (!enviado) await msg.reply(caption)
-      try {
-        await sock.sendMessage(msg.chat, { text: '✎ Listo.', edit: status.key })
-      } catch {}
     } catch (e) {
       console.error('[ytsearch] envío', e)
       await msg.reply(typeof msgglobal !== 'undefined' ? msgglobal : String(e?.message || e))
