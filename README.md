@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.30** — `#ytsearch` manda cada resultado (los primeros 5) como un mensaje aparte con su miniatura, título, duración, canal, vistas y enlace. Si la miniatura de uno falla, ese resultado va en texto.
+
 Version **1.1.29** — `#ytsearch` ya no dice "No encontré videos" cuando sí hubo resultados: la miniatura se descarga probando `hq720`, `maxresdefault`, `sddefault`, `hqdefault`, `mqdefault` y `default`, y si ninguna sirve manda los resultados en texto. `#play`, `#ytvideo`, `#sp` y `#ams` también descargan y validan la portada antes de enviarla.
 
 Version **1.1.28** — `#img` / `#imagen` ya no manda imágenes rotas (recuadro gris): descarga la imagen, verifica que sea JPEG/PNG real (GIF/WEBP se convierten a JPEG si se puede) y prueba varias fuentes (Google de la API, Bing, Pinterest, DuckDuckGo, Openverse). Si no consigue ninguna, avisa con un mensaje claro.
