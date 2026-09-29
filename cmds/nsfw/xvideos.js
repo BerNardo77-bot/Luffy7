@@ -1,18 +1,20 @@
 import db from "#db"
 import fetch from "node-fetch"
 import fs from "fs"
+import os from "os"
 import path from "path"
-import { execFile } from "child_process"
-import { promisify } from "util"
-import { prefijoActual } from '../../lib/prefijo.js';
+import { Transform } from "stream"
+import { pipeline } from "stream/promises"
 
-const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
-const MAX_DOWNLOAD = 500 * 1024 * 1024 // bajar hasta 500MB (WhatsApp NO envia 2GB)
+const MAX_DOC = (Number(process.env.XV_MAX_DOC_MB) || 500) * 1024 * 1024
+const MAX_DOC_MB = Math.round(MAX_DOC / 1024 / 1024)
 const MAX_SEND = 64 * 1024 * 1024
-const MAX_DURATION_SEC = 20 * 60 // mismo tope seguro que #ytvideo (Northflank)
-const FFMPEG_TIMEOUT_MS = 240000
-const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
+const DISK_MARGIN = 150 * 1024 * 1024
+// Sin DATA_DIR (Termux) va a ./tmp-dl junto al bot, no a /data.
+const TMP_DIR = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR.replace(/\/$/, ''), 'tmp', 'xv-dl')
+  : path.join(process.cwd(), 'tmp-dl')
 
 function getKey() {
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
@@ -39,21 +41,30 @@ function parseDurationToSeconds(ts) {
   return 0
 }
 
-function pickVideoCandidates(resultado, { preferSaferHd = false } = {}) {
+// En XVideos "high" suele ser ~360/480p, no la mejor. Se ordena por resolución real (1080, 720, …).
+function qualityRank(name) {
+  const m = String(name || '').match(/(\d{3,4})/)
+  if (m) return Number(m[1])
+  if (/^high$/i.test(name)) return 480
+  if (/^low$/i.test(name)) return 240
+  return 100
+}
+
+export function pickVideoCandidates(resultado) {
   const videos = resultado?.videos || resultado?.result?.videos || {}
   const list = []
   const seen = new Set()
   const push = (quality, url) => {
-    if (!url || seen.has(url)) return
+    if (!url || typeof url !== 'string' || seen.has(url)) return
+    if (/\.m3u8(\?|$)/i.test(url)) return
     seen.add(url)
-    list.push({ quality, url })
+    list.push({ quality: String(quality), url })
   }
-  // Alta calidad primero; en videos largos evitamos 1080p (RAM/ffmpeg en Northflank)
-  if (!preferSaferHd) push('1080p', videos['1080p'] || videos['1080'])
-  push('high', videos.high)
-  push('720p', videos['720p'] || videos['720'])
-  push('low', videos.low)
+  if (videos && typeof videos === 'object') {
+    for (const [k, v] of Object.entries(videos)) push(k, v)
+  }
   push('legacy', resultado?.result?.url || resultado?.url || resultado?.dl)
+  list.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality))
   return list
 }
 
@@ -69,66 +80,90 @@ async function fetchDl(base, videoUrl, key) {
   }
 }
 
-async function downloadBuffer(url) {
+function ensureTmp() {
+  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
+}
+
+function freeBytes(dir) {
+  try {
+    const st = fs.statfsSync(dir)
+    return Number(st.bavail) * Number(st.bsize)
+  } catch {
+    return Infinity
+  }
+}
+
+// Archivo en TMP_DIR + copia cifrada de Baileys en os.tmpdir()
+function hasDiskFor(size) {
+  ensureTmp()
+  let same = false
+  try { same = fs.statSync(TMP_DIR).dev === fs.statSync(os.tmpdir()).dev } catch {}
+  if (same) return freeBytes(TMP_DIR) > size * 2 + DISK_MARGIN
+  return freeBytes(TMP_DIR) > size + DISK_MARGIN && freeBytes(os.tmpdir()) > size + DISK_MARGIN
+}
+
+async function headSize(url) {
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        Referer: 'https://www.xvideos.com/'
+      },
+      timeout: 15000
+    })
+    const n = Number(res.headers.get('content-length'))
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+async function downloadToFile(url) {
+  ensureTmp()
+  const file = path.join(TMP_DIR, `xv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`)
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
       Accept: '*/*',
       Referer: 'https://www.xvideos.com/'
     },
-    timeout: 600000
+    timeout: 60000
   })
   if (!res.ok) throw new Error(`Descarga HTTP ${res.status}`)
   const len = Number(res.headers.get('content-length') || 0)
-  if (len && len > MAX_DOWNLOAD) {
-    throw new Error(`El archivo pesa ~${mb(len)} MB (limite de descarga ${mb(MAX_DOWNLOAD)} MB). WhatsApp no soporta 2GB.`)
+  if (len > MAX_DOC) {
+    res.body.destroy()
+    throw new Error(`El archivo pesa ~${mb(len)} MB y supera el límite de *${MAX_DOC_MB} MB*.`)
   }
-  const buf = Buffer.from(await res.arrayBuffer())
-  if (buf.length > MAX_DOWNLOAD) {
-    throw new Error(`El archivo pesa ${mb(buf.length)} MB (limite de descarga ${mb(MAX_DOWNLOAD)} MB).`)
-  }
-  return buf
-}
-
-async function compressForWhatsApp(inputBuf, baseName) {
-  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
-  const inFile = path.join(TMP_DIR, `${baseName}-in.mp4`)
-  const outFile = path.join(TMP_DIR, `${baseName}-out.mp4`)
-  fs.writeFileSync(inFile, inputBuf)
-
-  const attempts = [
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-vf', "scale='min(720,iw)':-2,fps=30", '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', outFile],
-    ['-y', '-i', inFile, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '32', '-vf', "scale='min(480,iw)':-2,fps=30", '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', outFile]
-  ]
-
-  let best = null
-  for (const args of attempts) {
-    try {
-      await execFileAsync('ffmpeg', args, { timeout: FFMPEG_TIMEOUT_MS })
-      if (!fs.existsSync(outFile)) continue
-      const out = fs.readFileSync(outFile)
-      if (!out.length) continue
-      if (!best || out.length < best.length) best = out
-      if (out.length <= MAX_SEND) {
-        best = out
-        break
-      }
-    } catch (e) {
-      console.error('[xvideos] ffmpeg', e?.message || e)
+  let size = 0
+  let idle = null
+  const counter = new Transform({
+    transform(chunk, _e, cb) {
+      size += chunk.length
+      idle.refresh()
+      if (size > MAX_DOC) return cb(new Error(`El archivo pesa más de *${MAX_DOC_MB} MB*.`))
+      cb(null, chunk)
     }
+  })
+  idle = setTimeout(() => counter.destroy(new Error('Descarga detenida (timeout)')), 60000)
+  try {
+    await pipeline(res.body, counter, fs.createWriteStream(file))
+  } catch (e) {
+    fs.promises.unlink(file).catch(() => {})
+    throw e
+  } finally {
+    clearTimeout(idle)
   }
-
-  try { fs.unlinkSync(inFile) } catch {}
-  try { fs.unlinkSync(outFile) } catch {}
-  return best
+  return { file, size }
 }
 
 export default {
   command: ["xvideos"],
   category: "nsfw",
   run: async ({ msg, sock, args, usedPrefix }) => {
-    const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[xvideos] build 120-safe 20min')
+    console.error('[xvideos] build 127 mejor calidad ≤' + MAX_DOC_MB + 'MB', usedPrefix || '')
+    let gotFile = null
     const chat = await db.getChat(msg.chat)
     if (!chat.nsfw) return msg.reply(mess.nsfw)
 
@@ -153,13 +188,6 @@ export default {
         await msg.reply(`*${videoInfo.title}*\n${videoInfo.duration || ''}\n${videoInfo.url}`)
       }
 
-      if (durationSec > MAX_DURATION_SEC) {
-        return msg.reply(
-          `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
-          `En este servidor el límite seguro es ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo).\n` +
-          `Prueba uno más corto, o abre el link:\n${videoUrl}`
-        )
-      }
 
       let got = await fetchDl(base, videoUrl, key)
       if ((!got.json?.status) && key !== FALLBACK_KEY) {
@@ -171,62 +199,76 @@ export default {
           resultado?.duration || resultado?.result?.duration || resultado?.length || ''
         )
       }
-      if (durationSec > MAX_DURATION_SEC) {
-        return msg.reply(
-          `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
-          `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min.\n${videoUrl}`
-        )
-      }
 
-      const preferSaferHd = durationSec >= 8 * 60
-      const candidates = pickVideoCandidates(resultado, { preferSaferHd })
+      const candidates = pickVideoCandidates(resultado)
       if (!got.json?.status || !candidates.length) {
         return msg.reply(`No se pudo obtener el video para descargar.\n📌 ${got.json?.message || 'sin enlace en la API'}`)
       }
 
-      let buf = null
       let usedLink = null
+      let usedQuality = ''
+      let tooBig = ''
       for (const c of candidates) {
         try {
-          await msg.reply(`《✧》 Bajando calidad *${c.quality}*…`)
-          buf = await downloadBuffer(c.url)
+          const len = await headSize(c.url)
+          if (len > MAX_DOC) {
+            tooBig = tooBig || `${c.quality} ~${mb(len)} MB`
+            console.error('[xvideos] skip', c.quality, mb(len))
+            continue
+          }
+          await msg.reply(`《✧》 Bajando calidad *${c.quality}*${len ? ` (~${mb(len)} MB)` : ''}…`)
+          gotFile = await downloadToFile(c.url)
           usedLink = c.url
-          if (buf?.length) break
+          usedQuality = c.quality
+          if (gotFile?.size) break
         } catch (e) {
           console.error('[xvideos] dl', c.quality, e.message)
+          if (/500 MB|supera/.test(e.message || '')) tooBig = tooBig || c.quality
+          gotFile = null
         }
       }
 
-      if (!buf?.length) return msg.reply("El archivo vino vacío.")
-
-      if (buf.length > MAX_SEND) {
-        await msg.reply(`《✧》 Pesa ${mb(buf.length)} MB. Comprimiendo a <64 MB (tope 4 min de ffmpeg para no congelar el bot)…`)
-        const compressed = await compressForWhatsApp(buf, `${Date.now()}`)
-        if (!compressed?.length) {
-          return msg.reply(
-            `《✧》 No pude comprimir a tiempo (evité congelar el bot).\nAbre el video aquí:\n${usedLink || candidates[0].url}`
-          )
-        }
-        buf = compressed
+      if (!gotFile?.size) {
+        return msg.reply(tooBig
+          ? `《✧》 La mejor calidad pesa demasiado (${tooBig}) y supera *${MAX_DOC_MB} MB*.\n${videoUrl}`
+          : 'El archivo vino vacío.')
       }
 
-      if (buf.length > MAX_SEND) {
+      const link = usedLink || candidates[0].url
+      if (gotFile.size > MAX_SEND && !hasDiskFor(gotFile.size)) {
         return msg.reply(
-          `《✧》 Aun comprimido pesa ${mb(buf.length)} MB.\n` +
-          `WhatsApp solo acepta ~64 MB por archivo.\n` +
-          `Abre el video aquí:\n${usedLink || candidates[0].url}`
+          `《✧》 Pesa ${mb(gotFile.size)} MB y no hay espacio temporal para enviarlo.\nAbre el video aquí:\n${link}`
         )
       }
-
-      try {
-        await sock.sendMessage(msg.chat, { video: buf, mimetype: "video/mp4", caption: "XVideos (HD)" }, { quoted: msg })
-      } catch (e) {
-        console.error('[xvideos] send', e)
-        await sock.sendMessage(msg.chat, { document: buf, mimetype: "video/mp4", fileName: "xvideos.mp4" }, { quoted: msg })
+      if (gotFile.size > MAX_SEND) {
+        await msg.reply(`《✧》 Pesa ${mb(gotFile.size)} MB; se envía como *documento* (límite ${MAX_DOC_MB} MB, puede tardar unos minutos)…`).catch(() => {})
+        await sock.sendMessage(msg.chat, {
+          document: { url: gotFile.file },
+          mimetype: 'video/mp4',
+          fileName: 'xvideos.mp4',
+          caption: `XVideos ${usedQuality} (${mb(gotFile.size)} MB, documento)`
+        }, { quoted: msg })
+      } else {
+        try {
+          await sock.sendMessage(msg.chat, {
+            video: { url: gotFile.file },
+            mimetype: 'video/mp4',
+            caption: `XVideos ${usedQuality} (${mb(gotFile.size)} MB)`
+          }, { quoted: msg })
+        } catch (e) {
+          console.error('[xvideos] send', e)
+          await sock.sendMessage(msg.chat, {
+            document: { url: gotFile.file },
+            mimetype: 'video/mp4',
+            fileName: 'xvideos.mp4'
+          }, { quoted: msg })
+        }
       }
     } catch (err) {
       console.error('[xvideos]', err)
       return msg.reply(`《✧》 Error: ${err?.message || err}`)
+    } finally {
+      if (gotFile?.file) fs.promises.unlink(gotFile.file).catch(() => {})
     }
   },
 }
