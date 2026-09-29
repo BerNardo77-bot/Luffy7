@@ -4,7 +4,7 @@ import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 // Cuántos resultados se mandan (cada uno es un mensaje con su miniatura)
-const MAX_RESULTADOS = 5
+const MAX_RESULTADOS = 10
 // Pausa entre mensajes para no hacer spam ni chocar con el límite de WhatsApp
 const PAUSA_MS = 700
 
