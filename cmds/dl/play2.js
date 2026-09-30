@@ -11,11 +11,11 @@ const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
 const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 const MAX_SEND_BYTES = 64 * 1024 * 1024
-const MAX_DURATION_SEC = 20 * 60 // tope duro; WhatsApp ~64MB suele cortar antes
+export const MAX_DURATION_SEC = 20 * 60 // tope duro; WhatsApp ~64MB suele cortar antes. No subir.
 const FFMPEG_TIMEOUT_MS = 240000 // 4 min max por intento (evita congelar el bot)
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
 
-function parseDurationToSeconds(ts) {
+export function parseDurationToSeconds(ts) {
   if (typeof ts === 'number' && Number.isFinite(ts)) return ts
   if (!ts || typeof ts !== 'string') return 0
   const parts = ts.split(':').map(n => Number(n))

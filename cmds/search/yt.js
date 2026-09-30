@@ -1,6 +1,8 @@
 import fetch from 'node-fetch'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
+import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js';
+import play2, { MAX_DURATION_SEC, parseDurationToSeconds } from '../dl/play2.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 // Cuántos resultados se mandan (cada uno es un mensaje con su miniatura)
@@ -9,6 +11,108 @@ const MAX_RESULTADOS = 10
 const PAUSA_MS = 700
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const YT_SITE = 'youtube'
+
+function resultUrl(v) {
+  const direct = String(v?.url || v?.link || '').trim()
+  if (/^https?:\/\//i.test(direct) && /youtu(\.be|be\.com)/i.test(direct)) return direct
+  const id = String(v?.videoId || v?.id || '').trim()
+  if (/^[a-zA-Z0-9_-]{11}$/.test(id)) return `https://youtu.be/${id}`
+  const m = direct.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
+  if (m) return `https://youtu.be/${m[1]}`
+  return /^https?:\/\//i.test(direct) ? direct : ''
+}
+
+// Segundos para el tope de ytvideo. 0 = desconocido (se deja que ytvideo lo mida).
+function resultSeconds(v) {
+  let best = 0
+  const consider = (n) => {
+    if (Number.isFinite(n) && n > best && n < 24 * 3600) best = n
+  }
+  consider(Number(v?.seconds))
+  consider(parseDurationToSeconds(v?.duration))
+  consider(parseDurationToSeconds(v?.timestamp))
+  consider(parseDurationToSeconds(v?.length))
+  const labeled = String(v?.duration || v?.timestamp || '').trim().toLowerCase()
+  if (labeled && !labeled.includes(':')) {
+    const h = labeled.match(/(\d+)\s*h/)
+    const m = labeled.match(/(\d+)\s*m/)
+    const s = labeled.match(/(\d+)\s*s/)
+    if (h || m || s) {
+      consider((Number(h?.[1] || 0) * 3600) + (Number(m?.[1] || 0) * 60) + Number(s?.[1] || 0))
+    }
+  }
+  return best
+}
+
+function rememberResults(msg, list) {
+  const items = []
+  for (const v of (list || []).slice(0, MAX_RESULTADOS)) {
+    const url = resultUrl(v)
+    if (!url) continue
+    items.push({
+      title: String(v.title || 'Sin título'),
+      url,
+      duration: String(v.duration || v.timestamp || '').trim(),
+      seconds: resultSeconds(v)
+    })
+  }
+  if (!items.length) return 0
+  savePick(msg.chat, { sender: msg.sender, site: YT_SITE, items, msg, fromMe: msg.fromMe })
+  return items.length
+}
+
+async function takeNumber({ msg, sock, usedPrefix }) {
+  const n = bareNumber(msg)
+  if (n == null) return false
+  const hit = readPick(msg)
+  if (!hit || hit.site !== YT_SITE) return false
+  if (!Number.isInteger(n) || n < 1 || n > hit.items.length) {
+    await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
+    return true
+  }
+  const item = hit.items[n - 1]
+  if (!item?.url) {
+    await msg.reply('Ese resultado no tiene enlace.')
+    return true
+  }
+  const sec = Number(item.seconds) || parseDurationToSeconds(item.duration)
+  if (sec > MAX_DURATION_SEC) {
+    const P = await prefijoActual({ sock, usedPrefix })
+    const title = String(item.title || 'Ese video').replace(/\s+/g, ' ').trim().slice(0, 160)
+    await msg.reply(
+      `《✧》 *${title}* dura ~${Math.round(sec / 60)} min.\n` +
+      `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo). No lo bajo.\n` +
+      `🔗 ${item.url}`
+    )
+    return true
+  }
+  clearPick(msg)
+  try {
+    await play2.run({ msg, sock, args: [item.url], usedPrefix })
+  } catch (e) {
+    console.error('[ytsearch] descarga', e?.message || e)
+    await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
+  }
+  return true
+}
+
+export async function before(ctx) {
+  try {
+    return await takeNumber(ctx)
+  } catch (e) {
+    console.error('[ytsearch] pick', e?.message || e)
+    let ours = false
+    try {
+      const hit = readPick(ctx?.msg)
+      ours = !!(hit && hit.site === YT_SITE && bareNumber(ctx?.msg) != null)
+    } catch {}
+    if (!ours) return false
+    try { await ctx.msg.reply(`《✧》 Error: ${e?.message || e}`) } catch {}
+    return true
+  }
+}
 
 // Pie de foto de un resultado
 function textoResultado(v, i, total) {
@@ -46,6 +150,7 @@ export default {
   category: 'search',
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
+    console.error('[ytsearch] build 1.1.33 numero descarga ytvideo', P)
     const query = args.join(' ').trim()
     if (!query) {
       return msg.reply(`✎ Uso: ${P}ytsearch <texto>\nEjemplo: ${P}ytsearch quien es Anubis`)
@@ -75,13 +180,16 @@ export default {
     }
     if (!top) return msg.reply(`✎ No encontré videos para *${query}*.\n${last}`)
 
+    const guardados = rememberResults(msg, top)
+
     // 2) Envío: un mensaje por resultado. Miniaturas en paralelo; si una falla, ese resultado va en texto
     try {
       const miniaturas = await Promise.all(
         top.map((v) => miniaturaYouTube(v.videoId, v.url, v.banner || v.thumbnail || v.image).catch(() => null))
       )
       try {
-        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} para *${query}*:`, edit: status.key })
+        const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para descargarlo.` : ''
+        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} para *${query}*.${rango}`, edit: status.key })
       } catch {}
 
       for (let i = 0; i < top.length; i++) {
