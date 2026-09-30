@@ -13,7 +13,7 @@ import {
   savePick,
   readPick,
   clearPick,
-  choiceNumber
+  bareNumber
 } from "../../lib/nsfw-pick.js"
 import { enviarOpciones } from "../../lib/nsfw-choice.js"
 
@@ -292,12 +292,12 @@ async function deliverXvideos({ msg, sock, videoUrl }) {
 }
 
 async function takeNumber({ msg, sock }, forced = 0) {
-  const n = Number(forced) || choiceNumber(msg)
-  if (!n || n < 1 || n > 5) return false
+  const n = Number(forced) > 0 ? Number(forced) : bareNumber(msg)
+  if (n == null) return false
   // Termux: el mensaje del dueño llega con fromMe. No reenviar la miniatura.
   const hit = readPick(msg)
   if (!hit || hit.site !== 'xvideos') return false
-  if (n > hit.items.length) {
+  if (!Number.isInteger(n) || n < 1 || n > hit.items.length) {
     await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
     return true
   }
