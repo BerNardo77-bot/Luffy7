@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.31** — `#xvideos` y `#xnxx` ya no eligen un resultado al azar. Solo descargan si cada palabra de la búsqueda (se ignoran las de 1 letra, sin importar mayúsculas) está en el título. Si no, listan hasta 5, cada uno en su propio mensaje: miniatura JPEG o PNG de la API (cover/thumb/thumbnail/image/img/poster) con número, título, duración y url; si la miniatura no sirve, ese resultado va solo en texto. Responder con un número del 1 al 5 en los siguientes 5 minutos (la misma persona, en memoria) descarga ese enlace. También vale el comando con una url directa. El texto usa el prefijo que esté en uso (`#` o `$`). `#xvideos` baja el mp4 progresivo *high* y luego *low* (no HLS; el estado dice high) y no manda MPEG-TS crudo. `#xnxx` mantiene su calidad de siempre. El tope de 20 min de `#ytvideo` no cambia.
+
 Version **1.1.30** — `#ytsearch` manda cada resultado (los primeros 5) como un mensaje aparte con su miniatura, título, duración, canal, vistas y enlace. Si la miniatura de uno falla, ese resultado va en texto.
 
 Version **1.1.29** — `#ytsearch` ya no dice "No encontré videos" cuando sí hubo resultados: la miniatura se descarga probando `hq720`, `maxresdefault`, `sddefault`, `hqdefault`, `mqdefault` y `default`, y si ninguna sirve manda los resultados en texto. `#play`, `#ytvideo`, `#sp` y `#ams` también descargan y validan la portada antes de enviarla.
