@@ -294,31 +294,31 @@ async function deliverXvideos({ msg, sock, videoUrl }) {
 async function takeNumber({ msg, sock }, forced = 0) {
   const n = Number(forced) || choiceNumber(msg)
   if (!n || n < 1 || n > 5) return false
-  if (msg.fromMe || msg.isBot) return false
-  const jid = msg.chat || msg.key?.remoteJid
-  const hit = readPick(jid, msg.sender)
+  // Termux: el mensaje del dueño llega con fromMe. No reenviar la miniatura.
+  const hit = readPick(msg)
   if (!hit || hit.site !== 'xvideos') return false
   if (n > hit.items.length) {
     await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
     return true
   }
   const item = hit.items[n - 1]
-  clearPick(jid)
+  clearPick(msg)
+  const jid = msg.chat || msg.key?.remoteJid
   const chat = await db.getChat(jid)
   if (!chat.nsfw) {
     await msg.reply(mess.nsfw)
     return true
   }
-  await msg.reply(`*${item.title}*\n${item.duration || ''}\n${item.url}`)
   await deliverXvideos({ msg, sock, videoUrl: item.url })
   return true
 }
 
 export async function before(ctx) {
   try {
-    await takeNumber(ctx)
+    return await takeNumber(ctx)
   } catch (e) {
     console.error('[xvideos] pick', e?.message || e)
+    return false
   }
 }
 
@@ -327,7 +327,7 @@ export default {
   category: "nsfw",
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[xvideos] build 1.1.31 coincidencia exacta, mp4 progressive high', P)
+    console.error('[xvideos] build 1.1.32 numero descarga mp4 high', P)
     const chat = await db.getChat(msg.chat)
     if (!chat.nsfw) return msg.reply(mess.nsfw)
 
@@ -338,6 +338,7 @@ export default {
       if (/^[1-5]$/.test(query)) {
         const handled = await takeNumber({ msg, sock }, Number(query))
         if (handled) return
+        return msg.reply('No hay una lista pendiente de XVideos (caduca a los 5 min).')
       }
 
       const base = (typeof api !== 'undefined' && api?.url) ? api.url : 'https://api.alyacore.xyz'
@@ -354,7 +355,7 @@ export default {
         const hit = bestMatch(results, query)
         if (!isFullMatch(hit)) {
           const items = results.slice(0, 5)
-          savePick(msg.chat, { sender: msg.sender, site: 'xvideos', items })
+          savePick(msg.chat, { sender: msg.sender, site: 'xvideos', items, msg, fromMe: msg.fromMe })
           await enviarOpciones({ msg, sock, items, cmd: 'xvideos', prefix: P })
           return
         }

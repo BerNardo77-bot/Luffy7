@@ -104,27 +104,20 @@ async function deliverXnxx({ msg, sock, videoUrl, durationSec = 0, prefix = '' }
 async function takeNumber({ msg, sock }, forced = 0) {
   const n = Number(forced) || choiceNumber(msg)
   if (!n || n < 1 || n > 5) return false
-  if (msg.fromMe || msg.isBot) return false
-  const jid = msg.chat || msg.key?.remoteJid
-  const hit = readPick(jid, msg.sender)
+  const hit = readPick(msg)
   if (!hit || hit.site !== 'xnxx') return false
   if (n > hit.items.length) {
     await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
     return true
   }
   const item = hit.items[n - 1]
-  clearPick(jid)
+  clearPick(msg)
+  const jid = msg.chat || msg.key?.remoteJid
   const chat = await db.getChat(jid)
   if (!chat.nsfw) {
     await msg.reply(mess.nsfw)
     return true
   }
-  const caption = `- ׄ　ꕤ　ׅ　✤ ໌　۟　🅧nxx　ׅ　팅화　ׄ
-
-𖣣ֶㅤ֯⌗ ✿  ׄ ⬭ *Titulo :: ${item.title}*
-𖣣ֶㅤ֯⌗ ✿  ׄ ⬭ *Duración ::* ${item.duration}
-𖣣ֶㅤ֯⌗ ✿  ׄ ⬭ *Ver en ::* ${item.url}`
-  await msg.reply(caption)
   const P = await prefijoActual({ sock })
   await deliverXnxx({
     msg,
@@ -138,9 +131,10 @@ async function takeNumber({ msg, sock }, forced = 0) {
 
 export async function before(ctx) {
   try {
-    await takeNumber(ctx)
+    return await takeNumber(ctx)
   } catch (e) {
     console.error('[xnxx] pick', e?.message || e)
+    return false
   }
 }
 
@@ -149,7 +143,7 @@ export default {
   category: "nsfw",
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[xnxx] build 1.1.31 coincidencia exacta + lista', P)
+    console.error('[xnxx] build 1.1.32 numero descarga', P)
     const chat = await db.getChat(msg.chat)
 
     if (!chat.nsfw)
@@ -162,6 +156,7 @@ export default {
       if (/^[1-5]$/.test(query)) {
         const handled = await takeNumber({ msg, sock }, Number(query))
         if (handled) return
+        return msg.reply('No hay una lista pendiente de XNXX (caduca a los 5 min).')
       }
 
       const base = apiBase()
@@ -185,7 +180,7 @@ export default {
         const hit = bestMatch(results, query)
         if (!isFullMatch(hit)) {
           const items = results.slice(0, 5)
-          savePick(msg.chat, { sender: msg.sender, site: 'xnxx', items })
+          savePick(msg.chat, { sender: msg.sender, site: 'xnxx', items, msg, fromMe: msg.fromMe })
           await enviarOpciones({ msg, sock, items, cmd: 'xnxx', prefix: P })
           return
         }
