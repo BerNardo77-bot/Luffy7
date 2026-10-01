@@ -411,11 +411,14 @@ function youtubeVideoId(url) {
 // YouTube no pone og:image en el HTML que recibe el bot. La miniatura pública sí responde.
 function miniaturaDirecta(url) {
   const id = youtubeVideoId(url)
-  if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+  return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : ''
+}
+
+function miniaturaCanal(url) {
   try {
     const u = new URL(url)
     const host = u.hostname.replace(/^www\./, '')
-    if (host !== 'youtube.com' && host !== 'm.youtube.com') return ''
+    if (host !== 'youtube.com' && host !== 'm.youtube.com' && host !== 'music.youtube.com') return ''
     const ch = u.pathname.match(/\/channel\/(UC[\w-]{22})/)
     if (ch) return `https://unavatar.io/youtube/${ch[1]}`
     const at = u.pathname.match(/\/@([\w.-]+)/)
@@ -575,10 +578,38 @@ async function thumbsWiki(results) {
   }))
 }
 
+
+function esYouTube(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '')
+    return host === 'youtu.be' || host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com'
+  } catch { return false }
+}
+
+// Playlist y canal no tienen id de video. oEmbed devuelve la miniatura (la de la playlist sí).
+async function oembedThumb(url) {
+  if (!esYouTube(url)) return ''
+  try {
+    const endpoint = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`
+    const json = await get(endpoint, { timeout: 6000, json: true, headers: { Accept: 'application/json' } })
+    const thumb = String(json?.thumbnail_url || '')
+    return /^https?:\/\//i.test(thumb) ? thumb : ''
+  } catch (e) {
+    console.error('[google] oembed', e?.message || e)
+    return ''
+  }
+}
+
 async function completarMiniaturas(results) {
   for (const r of results) {
     if (!r.image) r.image = miniaturaDirecta(r.url)
   }
+  await Promise.all(results.map(async (r) => {
+    if (r.image || !esYouTube(r.url)) return
+    const thumb = await oembedThumb(r.url)
+    if (thumb) r.image = thumb
+    else r.image = miniaturaCanal(r.url)
+  }))
   await thumbsWiki(results)
   await Promise.all(results.map(async (r) => {
     if (r.image) return
@@ -627,7 +658,7 @@ export default {
   command: ['google', 'gg', 'buscar', 'googlesearch'],
   category: 'search',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
-    console.error('[google] build 1.1.37 miniatura youtube')
+    console.error('[google] build 1.1.38 playlist y music')
     const p = usedPrefix || '#'
     const q = (text || args.join(' ')).trim()
     if (!q) {

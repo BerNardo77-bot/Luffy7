@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.38** — `$google` también pone miniatura en playlists y en YouTube Music. La playlist usa la foto que devuelve YouTube. El canal usa su foto. Si no hay, ese resultado queda en texto.
+
 Version **1.1.37** — `$google` usa la miniatura pública de YouTube (`i.ytimg.com`) en videos, Shorts y youtu.be. En un canal usa la foto del canal. El resto sigue con la foto de la página. Si no hay foto, ese resultado va en texto.
 
 Version **1.1.36** — `$google` manda cada resultado en su propio mensaje (hasta 5), con miniatura. Wikipedia usa la foto de la página. El resto usa `og:image` o `twitter:image`. JPEG y PNG se envían tal cual; WEBP y GIF pasan a JPEG con sharp o ffmpeg. Si no hay foto usable, ese resultado va solo en texto.
