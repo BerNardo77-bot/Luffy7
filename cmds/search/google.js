@@ -389,6 +389,41 @@ export function formatResults(q, source, results) {
 }
 
 
+
+function youtubeVideoId(url) {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    if (host === 'youtu.be') {
+      const id = u.pathname.replace(/^\//, '').slice(0, 11)
+      if (/^[\w-]{11}$/.test(id)) return id
+    }
+    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+      const v = u.searchParams.get('v') || ''
+      if (/^[\w-]{11}$/.test(v)) return v
+      const m = u.pathname.match(/\/(?:embed|shorts|live)\/([\w-]{11})/)
+      if (m) return m[1]
+    }
+  } catch {}
+  return ''
+}
+
+// YouTube no pone og:image en el HTML que recibe el bot. La miniatura pública sí responde.
+function miniaturaDirecta(url) {
+  const id = youtubeVideoId(url)
+  if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    if (host !== 'youtube.com' && host !== 'm.youtube.com') return ''
+    const ch = u.pathname.match(/\/channel\/(UC[\w-]{22})/)
+    if (ch) return `https://unavatar.io/youtube/${ch[1]}`
+    const at = u.pathname.match(/\/@([\w.-]+)/)
+    if (at) return `https://unavatar.io/youtube/${at[1]}`
+  } catch {}
+  return ''
+}
+
 function esImagen(buf) {
   if (!buf || buf.length < 12) return false
   if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg'
@@ -541,6 +576,9 @@ async function thumbsWiki(results) {
 }
 
 async function completarMiniaturas(results) {
+  for (const r of results) {
+    if (!r.image) r.image = miniaturaDirecta(r.url)
+  }
   await thumbsWiki(results)
   await Promise.all(results.map(async (r) => {
     if (r.image) return
@@ -589,7 +627,7 @@ export default {
   command: ['google', 'gg', 'buscar', 'googlesearch'],
   category: 'search',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
-    console.error('[google] build 1.1.36 miniaturas')
+    console.error('[google] build 1.1.37 miniatura youtube')
     const p = usedPrefix || '#'
     const q = (text || args.join(' ')).trim()
     if (!q) {
