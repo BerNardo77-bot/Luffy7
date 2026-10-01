@@ -1,4 +1,13 @@
 import fetch from 'node-fetch'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+const execFileAsync = promisify(execFile)
+const PAUSA_MS = 700
+const MAX_THUMB = 2 * 1024 * 1024
 
 // #google — búsqueda web.
 // Orden de motores (el primero que da resultados reales gana; si da menos de 3 se completa con los siguientes):
@@ -154,7 +163,7 @@ function attr(tag = '', name) {
 async function googleCse(q, { timeout }) {
   const p = new URLSearchParams({ key: process.env.GOOGLE_CSE_KEY, cx: process.env.GOOGLE_CSE_CX, q, num: '10', hl: 'es', gl: 'mx' })
   const json = await get(`https://www.googleapis.com/customsearch/v1?${p}`, { timeout, json: true, headers: { Accept: 'application/json' } })
-  return (json?.items || []).map((r) => ({ title: clean(r.title), url: r.link, snippet: clean(r.snippet || '') }))
+  return (json?.items || []).map((r) => ({ title: clean(r.title), url: r.link, snippet: clean(r.snippet || ''), image: r.pagemap?.cse_image?.[0]?.src || r.pagemap?.cse_thumbnail?.[0]?.src || '' }))
 }
 
 async function braveApi(q, { timeout }) {
@@ -164,7 +173,7 @@ async function braveApi(q, { timeout }) {
     json: true,
     headers: { Accept: 'application/json', 'X-Subscription-Token': process.env.BRAVE_API_KEY }
   })
-  return (json?.web?.results || []).map((r) => ({ title: clean(r.title), url: r.url, snippet: clean(r.description || '') }))
+  return (json?.web?.results || []).map((r) => ({ title: clean(r.title), url: r.url, snippet: clean(r.description || ''), image: r.thumbnail?.src || '' }))
 }
 
 // ── DuckDuckGo HTML ────────────────────────────────────────────────
@@ -379,10 +388,208 @@ export function formatResults(q, source, results) {
   ).slice(0, 3800)
 }
 
+
+function esImagen(buf) {
+  if (!buf || buf.length < 12) return false
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg'
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png'
+  if (buf.slice(0, 3).toString() === 'GIF') return 'image/gif'
+  if (buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP') return 'image/webp'
+  return false
+}
+
+function urlAbsoluta(base, href) {
+  try { return new URL(href, base).href } catch { return '' }
+}
+
+// og:image o twitter:image del HTML de la página.
+export function ogImage(html = '', pageUrl = '') {
+  const metas = [...String(html).slice(0, 120000).matchAll(/<meta\b[^>]*>/gi)].map((m) => m[0])
+  for (const tag of metas) {
+    const prop = attr(tag, 'property') || attr(tag, 'name')
+    if (!/^(og:image|og:image:url|twitter:image|twitter:image:src)$/i.test(prop)) continue
+    const raw = decodeEntities(attr(tag, 'content'))
+    const u = urlAbsoluta(pageUrl, raw)
+    if (/^https?:\/\//i.test(u)) return u
+  }
+  return ''
+}
+
+let sharpMod
+async function jpegConSharp(buffer) {
+  try {
+    if (sharpMod === undefined) {
+      try { sharpMod = (await import('sharp')).default } catch { sharpMod = null }
+    }
+    if (!sharpMod) return { skip: true }
+    const out = await sharpMod(buffer, { animated: false, failOn: 'none' })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 82 })
+      .toBuffer()
+    if (esImagen(out) === 'image/jpeg') return { buffer: out }
+    return { error: 'sharp no produjo JPEG' }
+  } catch (e) {
+    return { error: e?.message || String(e) }
+  }
+}
+
+async function jpegConFfmpeg(buffer) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ggcover-'))
+  const inp = path.join(dir, 'in.img')
+  const out = path.join(dir, 'out.jpg')
+  try {
+    fs.writeFileSync(inp, buffer)
+    await execFileAsync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', inp, '-frames:v', '1', '-q:v', '3', out], { timeout: 20000 })
+    if (!fs.existsSync(out)) return { error: 'ffmpeg no escribió el JPEG' }
+    const jpeg = fs.readFileSync(out)
+    if (esImagen(jpeg) !== 'image/jpeg') return { error: 'ffmpeg no produjo JPEG' }
+    return { buffer: jpeg }
+  } catch (e) {
+    return { error: e?.message || String(e) }
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+async function aJpeg(buffer) {
+  const sharpRes = await jpegConSharp(buffer)
+  if (sharpRes.buffer) return sharpRes.buffer
+  const ff = await jpegConFfmpeg(buffer)
+  return ff.buffer || null
+}
+
+async function bajarImagen(url) {
+  const u = String(url || '').trim()
+  if (!/^https?:\/\//i.test(u)) return null
+  try {
+    const res = await fetch(u, {
+      headers: { ...HEADERS, Accept: 'image/jpeg,image/png,image/webp,image/*,*/*;q=0.5' },
+      signal: AbortSignal.timeout(8000),
+      redirect: 'follow'
+    })
+    if (!res.ok) return null
+    const buffer = Buffer.from(await res.arrayBuffer())
+    if (!buffer.length || buffer.length > MAX_THUMB) return null
+    const tipo = esImagen(buffer)
+    if (tipo === 'image/jpeg' || tipo === 'image/png') return { buffer, mimetype: tipo }
+    if (tipo === 'image/webp' || tipo === 'image/gif') {
+      const jpeg = await aJpeg(buffer)
+      if (jpeg) return { buffer: jpeg, mimetype: 'image/jpeg' }
+    }
+    return null
+  } catch (e) {
+    console.error('[google] miniatura', e?.message || e)
+    return null
+  }
+}
+
+async function htmlCorto(url) {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), 6000)
+  try {
+    const res = await fetch(url, { headers: HEADERS, signal: ctrl.signal, redirect: 'follow' })
+    if (!res.ok) return ''
+    const chunks = []
+    let n = 0
+    for await (const c of res.body) {
+      const b = Buffer.isBuffer(c) ? c : Buffer.from(c)
+      chunks.push(b)
+      n += b.length
+      if (n >= 80000) break
+    }
+    res.body?.destroy?.()
+    return Buffer.concat(chunks).slice(0, 80000).toString('utf8')
+  } catch {
+    return ''
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+async function thumbsWiki(results) {
+  const groups = new Map()
+  for (const r of results) {
+    if (r.image) continue
+    let host = ''
+    let title = ''
+    try {
+      const u = new URL(r.url)
+      if (!/(^|\.)wikipedia\.org$/i.test(u.hostname)) continue
+      const m = u.pathname.match(/\/wiki\/(.+)$/)
+      if (!m) continue
+      host = u.hostname
+      title = decodeURIComponent(m[1])
+    } catch { continue }
+    if (!groups.has(host)) groups.set(host, [])
+    groups.get(host).push({ r, title })
+  }
+  await Promise.all([...groups.entries()].map(async ([host, items]) => {
+    const titles = items.map((x) => x.title).slice(0, 8)
+    const url = `https://${host}/w/api.php?action=query&prop=pageimages&format=json&pithumbsize=480&titles=${titles.map(encodeURIComponent).join('|')}`
+    try {
+      const json = await get(url, { timeout: 6000, json: true, headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } })
+      for (const page of Object.values(json?.query?.pages || {})) {
+        const src = page?.thumbnail?.source
+        if (!src) continue
+        const hit = items.find((x) => norm(x.title.replace(/_/g, ' ')) === norm(String(page.title || '').replace(/_/g, ' ')))
+        if (hit) hit.r.image = src
+      }
+    } catch (e) {
+      console.error('[google] wiki thumb', e?.message || e)
+    }
+  }))
+}
+
+async function completarMiniaturas(results) {
+  await thumbsWiki(results)
+  await Promise.all(results.map(async (r) => {
+    if (r.image) return
+    const html = await htmlCorto(r.url)
+    const img = ogImage(html, r.url)
+    if (img) r.image = img
+  }))
+  await Promise.all(results.map(async (r) => {
+    r._thumb = await bajarImagen(r.image)
+  }))
+}
+
+function captionResultado(r, i) {
+  return (
+    `➩ *${i + 1}. ${short(r.title, 120)}*\n` +
+    (r.snippet ? `> ${short(r.snippet)}\n` : '') +
+    `> ❑ ${r.url}`
+  ).slice(0, 1000)
+}
+
+async function enviarResultados({ msg, sock, q, source, results }) {
+  await completarMiniaturas(results)
+  const n = results.length
+  await msg.reply(`❑ *Búsqueda Web*\n> ✿ ${q}\n\n✎ ${n} resultado${n === 1 ? '' : 's'}. Fuente › ${source}`)
+  for (let i = 0; i < results.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS))
+    const caption = captionResultado(results[i], i)
+    const thumb = results[i]._thumb
+    try {
+      if (thumb) {
+        await sock.sendMessage(msg.chat, { image: thumb.buffer, mimetype: thumb.mimetype, caption }, { quoted: msg })
+        continue
+      }
+    } catch (e) {
+      console.error(`[google] miniatura ${i + 1} no enviada, mando texto:`, e?.message || e)
+    }
+    try {
+      await sock.sendMessage(msg.chat, { text: caption }, { quoted: msg })
+    } catch (e) {
+      console.error(`[google] resultado ${i + 1}`, e?.message || e)
+    }
+  }
+}
+
 export default {
   command: ['google', 'gg', 'buscar', 'googlesearch'],
   category: 'search',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
+    console.error('[google] build 1.1.36 miniaturas')
     const p = usedPrefix || '#'
     const q = (text || args.join(' ')).trim()
     if (!q) {
@@ -400,7 +607,7 @@ export default {
             `Los buscadores no respondieron o están bloqueando la consulta. Intenta de nuevo en unos minutos o con otras palabras.`
         )
       }
-      await msg.reply(formatResults(q, source, results))
+      await enviarResultados({ msg, sock, q, source, results })
       try { await msg.react('✔️') } catch {}
     } catch (e) {
       console.error('[google]', e)
