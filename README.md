@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.39** — tras `$google`, un número solo (1–5, vale 5 min) baja el video si es YouTube, o manda el resumen de la página si es Wikipedia. Si no es ni video ni Wikipedia, avisa y deja el enlace. La lista más nueva gana.
+
 Version **1.1.38** — `$google` también pone miniatura en playlists y en YouTube Music. La playlist usa la foto que devuelve YouTube. El canal usa su foto. Si no hay, ese resultado queda en texto.
 
 Version **1.1.37** — `$google` usa la miniatura pública de YouTube (`i.ytimg.com`) en videos, Shorts y youtu.be. En un canal usa la foto del canal. El resto sigue con la foto de la página. Si no hay foto, ese resultado va en texto.

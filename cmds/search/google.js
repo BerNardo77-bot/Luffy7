@@ -1,4 +1,6 @@
 import fetch from 'node-fetch'
+import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js'
+import play2 from '../dl/play2.js'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
@@ -630,10 +632,121 @@ function captionResultado(r, i) {
   ).slice(0, 1000)
 }
 
+
+const GOOGLE_SITE = 'google'
+
+function recordar(msg, results) {
+  const items = []
+  for (const r of results) {
+    const url = String(r?.url || '').trim()
+    if (!/^https?:\/\//i.test(url)) continue
+    items.push({
+      title: String(r.title || 'Sin título').replace(/\s+/g, ' ').trim().slice(0, 300),
+      url
+    })
+  }
+  if (!items.length) return 0
+  savePick(msg.chat, { sender: msg.sender, site: GOOGLE_SITE, items, msg, fromMe: msg.fromMe })
+  return items.length
+}
+
+
+function wikiDe(url) {
+  try {
+    const u = new URL(url)
+    if (!/(^|\.)wikipedia\.org$/i.test(u.hostname)) return null
+    const m = u.pathname.match(/\/wiki\/(.+)$/)
+    if (!m) return null
+    return { host: u.hostname, title: decodeURIComponent(m[1]) }
+  } catch {
+    return null
+  }
+}
+
+async function resumenWiki(url) {
+  const w = wikiDe(url)
+  if (!w) return ''
+  const api = `https://${w.host}/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&redirects=1&format=json&titles=${encodeURIComponent(w.title)}`
+  const json = await get(api, { timeout: 8000, json: true, headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } })
+  const page = Object.values(json?.query?.pages || {})[0] || {}
+  const extract = String(page.extract || '').replace(/\s+/g, ' ').trim()
+  if (!extract) return ''
+  const title = String(page.title || w.title.replace(/_/g, ' ')).trim()
+  const body = extract.length > 1400 ? extract.slice(0, 1400).replace(/\s+\S*$/, '') + '…' : extract
+  return `❑ *${title}*\n\n${body}\n\n${url}`
+}
+
+function enlaceYouTube(url) {
+  const id = youtubeVideoId(url)
+  return id ? `https://youtu.be/${id}` : ''
+}
+
+async function takeNumber({ msg, sock, usedPrefix }) {
+  const n = bareNumber(msg)
+  if (n == null) return false
+  const hit = readPick(msg)
+  if (!hit || hit.site !== GOOGLE_SITE) return false
+  if (!Number.isInteger(n) || n < 1 || n > hit.items.length) {
+    await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
+    return true
+  }
+  const item = hit.items[n - 1]
+  if (!item?.url) {
+    await msg.reply('Ese resultado no tiene enlace.')
+    return true
+  }
+  if (wikiDe(item.url)) {
+    try {
+      const text = await resumenWiki(item.url)
+      if (!text) {
+        await msg.reply(`No pude leer el resumen de Wikipedia.\n${item.url}`)
+        return true
+      }
+      await msg.reply(text)
+    } catch (e) {
+      console.error('[google] wiki', e?.message || e)
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
+    }
+    return true
+  }
+  const video = enlaceYouTube(item.url)
+  if (!video) {
+    const title = String(item.title || 'Ese resultado').replace(/\s+/g, ' ').trim().slice(0, 160)
+    await msg.reply(`《✧》 *${title}* no es un video de YouTube. No lo bajo.\n${item.url}`)
+    return true
+  }
+  clearPick(msg)
+  try {
+    await play2.run({ msg, sock, args: [video], usedPrefix })
+  } catch (e) {
+    console.error('[google] descarga', e?.message || e)
+    await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
+  }
+  return true
+}
+
+export async function before(ctx) {
+  try {
+    return await takeNumber(ctx)
+  } catch (e) {
+    console.error('[google] pick', e?.message || e)
+    let ours = false
+    try {
+      const hit = readPick(ctx?.msg)
+      ours = !!(hit && hit.site === GOOGLE_SITE && bareNumber(ctx?.msg) != null)
+    } catch {}
+    if (!ours) return false
+    try { await ctx.msg.reply(`《✧》 Error: ${e?.message || e}`) } catch {}
+    return true
+  }
+}
+
 async function enviarResultados({ msg, sock, q, source, results }) {
   await completarMiniaturas(results)
   const n = results.length
-  await msg.reply(`❑ *Búsqueda Web*\n> ✿ ${q}\n\n✎ ${n} resultado${n === 1 ? '' : 's'}. Fuente › ${source}`)
+  const guardados = recordar(msg, results)
+  const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para bajar un video de YouTube o leer el resumen de Wikipedia.` : ''
+  await msg.reply(`❑ *Búsqueda Web*\n> ✿ ${q}\n\n✎ ${n} resultado${n === 1 ? '' : 's'}. Fuente › ${source}.${rango}`)
   for (let i = 0; i < results.length; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS))
     const caption = captionResultado(results[i], i)
@@ -658,7 +771,7 @@ export default {
   command: ['google', 'gg', 'buscar', 'googlesearch'],
   category: 'search',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
-    console.error('[google] build 1.1.38 playlist y music')
+    console.error('[google] build 1.1.39 numero youtube o wikipedia')
     const p = usedPrefix || '#'
     const q = (text || args.join(' ')).trim()
     if (!q) {
