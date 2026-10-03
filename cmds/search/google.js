@@ -1,6 +1,7 @@
 import fetch from 'node-fetch'
 import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js'
 import play2 from '../dl/play2.js'
+import tiktok from '../dl/tiktok.js'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
@@ -11,7 +12,7 @@ const execFileAsync = promisify(execFile)
 const PAUSA_MS = 700
 const MAX_THUMB = 2 * 1024 * 1024
 
-// #google — búsqueda web.
+// $google — búsqueda web.
 // Orden de motores (el primero que da resultados reales gana; si da menos de 3 se completa con los siguientes):
 //   1. APIs oficiales opcionales, solo si hay variables de entorno:
 //        GOOGLE_CSE_KEY + GOOGLE_CSE_CX  → Google Programmable Search (JSON API)
@@ -35,7 +36,7 @@ const WIKI_UA = 'Luffy7-WhatsApp/1.1 (google)'
 const ENGINE_TIMEOUT = 7000
 const BUDGET = 19000 // presupuesto total de la búsqueda
 const WIKI_RESERVE = 3500 // tiempo guardado para Wikipedia al final
-const MAX = 5
+const MAX = 10
 const MIN_GOOD = 3 // con menos resultados se intenta completar con el siguiente motor
 
 class BlockedError extends Error {}
@@ -357,7 +358,7 @@ export async function webSearch(q) {
   let results = []
   const sources = []
   for (const eng of engines()) {
-    if (results.length >= MIN_GOOD) break
+    if (results.length >= MAX) break
     const left = start + BUDGET - (eng.last ? 0 : WIKI_RESERVE) - Date.now()
     if (left < 1200) { errors.push(`${eng.name}: sin tiempo`); continue }
     const timeout = Math.min(eng.timeout || (eng.last ? 5000 : ENGINE_TIMEOUT), left)
@@ -372,7 +373,45 @@ export async function webSearch(q) {
       errors.push(`${eng.name}: ${e?.name === 'AbortError' ? 'timeout' : e?.message || e} (${Date.now() - t0} ms)`)
     }
   }
+  const tiktoks = await buscarTiktok(q)
+  if (tiktoks.length) {
+    results = results.concat(uniq(tiktoks, seen)).slice(0, MAX)
+    if (!sources.includes('TikTok')) sources.push('TikTok')
+  }
   return { source: sources.join(' + ') || null, results, errors, ms: Date.now() - start }
+}
+
+async function buscarTiktok(q) {
+  const base = (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = 'LUFFY-FIX67'
+  try {
+    const url = `${base}/search/tiktok?query=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`
+    const res = await fetch(url, { signal: AbortSignal.timeout(12000) })
+    const json = await res.json().catch(() => ({}))
+    const list = json?.data || json?.result || []
+    if (!json?.status || !Array.isArray(list)) return []
+    const out = []
+    for (const v of list) {
+      const page = String(v?.url || '').trim()
+      const author = v?.author && typeof v.author === 'object' ? v.author : {}
+      const uid = author.unique_id || author.uniqueId || ''
+      const id = v?.id || ''
+      const link = /tiktok\.com/i.test(page) ? page.split(/\s/)[0] : (uid && id ? `https://www.tiktok.com/@${uid}/video/${id}` : '')
+      if (!link) continue
+      const title = String(v.title || v.desc || 'TikTok').replace(/\s+/g, ' ').trim()
+      out.push({
+        title,
+        url: link,
+        snippet: uid ? `@${String(uid).replace(/^@/, '')}` : 'TikTok',
+        image: typeof v.cover === 'string' ? v.cover : ''
+      })
+    }
+    return out
+  } catch (e) {
+    console.error('[google] tiktok', e?.message || e)
+    return []
+  }
 }
 
 export function formatResults(q, source, results) {
@@ -498,12 +537,39 @@ async function aJpeg(buffer) {
   return ff.buffer || null
 }
 
-async function bajarImagen(url) {
+function origenDe(pageUrl) {
+  try {
+    const u = new URL(pageUrl)
+    return `${u.protocol}//${u.host}/`
+  } catch {
+    return ''
+  }
+}
+
+// Wikia niega la imagen (403) si no llega Referer, y sin format=original manda WEBP.
+function urlImagenDescargable(url) {
   const u = String(url || '').trim()
-  if (!/^https?:\/\//i.test(u)) return null
+  if (!/^https?:\/\//i.test(u)) return ''
+  try {
+    const x = new URL(u)
+    if (/wikia\.nocookie\.net$/i.test(x.hostname) && !x.searchParams.has('format')) {
+      x.searchParams.set('format', 'original')
+    }
+    return x.href
+  } catch {
+    return u
+  }
+}
+
+async function bajarImagen(url, pageUrl = '') {
+  const u = urlImagenDescargable(url)
+  if (!u) return null
+  const headers = { ...HEADERS, Accept: 'image/jpeg,image/png,image/webp,image/*,*/*;q=0.5' }
+  const ref = origenDe(pageUrl)
+  if (ref) headers.Referer = ref
   try {
     const res = await fetch(u, {
-      headers: { ...HEADERS, Accept: 'image/jpeg,image/png,image/webp,image/*,*/*;q=0.5' },
+      headers,
       signal: AbortSignal.timeout(8000),
       redirect: 'follow'
     })
@@ -546,26 +612,41 @@ async function htmlCorto(url) {
   }
 }
 
+// Wikipedia usa /w/api.php. Fandom en español usa /es/api.php, no /w/.
+function mediaWikiDe(url) {
+  try {
+    const u = new URL(url)
+    const host = u.hostname
+    const wiki = /(^|\.)wikipedia\.org$/i.test(host)
+    const fandom = /(^|\.)fandom\.com$/i.test(host)
+    if (!wiki && !fandom) return null
+    const m = u.pathname.match(/^(?:\/([a-z]{2,12}))?\/wiki\/(.+)$/i)
+    if (!m) return null
+    const lang = m[1] && m[1].toLowerCase() !== 'wiki' ? m[1] : ''
+    const title = decodeURIComponent(m[2])
+    const api = lang
+      ? `https://${host}/${lang}/api.php`
+      : wiki
+        ? `https://${host}/w/api.php`
+        : `https://${host}/api.php`
+    return { api, title }
+  } catch {
+    return null
+  }
+}
+
 async function thumbsWiki(results) {
   const groups = new Map()
   for (const r of results) {
     if (r.image) continue
-    let host = ''
-    let title = ''
-    try {
-      const u = new URL(r.url)
-      if (!/(^|\.)wikipedia\.org$/i.test(u.hostname)) continue
-      const m = u.pathname.match(/\/wiki\/(.+)$/)
-      if (!m) continue
-      host = u.hostname
-      title = decodeURIComponent(m[1])
-    } catch { continue }
-    if (!groups.has(host)) groups.set(host, [])
-    groups.get(host).push({ r, title })
+    const w = mediaWikiDe(r.url)
+    if (!w) continue
+    if (!groups.has(w.api)) groups.set(w.api, [])
+    groups.get(w.api).push({ r, title: w.title })
   }
-  await Promise.all([...groups.entries()].map(async ([host, items]) => {
+  await Promise.all([...groups.entries()].map(async ([api, items]) => {
     const titles = items.map((x) => x.title).slice(0, 8)
-    const url = `https://${host}/w/api.php?action=query&prop=pageimages&format=json&pithumbsize=480&titles=${titles.map(encodeURIComponent).join('|')}`
+    const url = `${api}?action=query&prop=pageimages&format=json&pithumbsize=480&titles=${titles.map(encodeURIComponent).join('|')}`
     try {
       const json = await get(url, { timeout: 6000, json: true, headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } })
       for (const page of Object.values(json?.query?.pages || {})) {
@@ -620,7 +701,7 @@ async function completarMiniaturas(results) {
     if (img) r.image = img
   }))
   await Promise.all(results.map(async (r) => {
-    r._thumb = await bajarImagen(r.image)
+    r._thumb = await bajarImagen(r.image, r.url)
   }))
 }
 
@@ -709,6 +790,16 @@ async function takeNumber({ msg, sock, usedPrefix }) {
     }
     return true
   }
+  if (/tiktok\.com/i.test(item.url)) {
+    clearPick(msg)
+    try {
+      await tiktok.run({ msg, sock, args: [item.url], command: 'tiktok', usedPrefix })
+    } catch (e) {
+      console.error('[google] tiktok', e?.message || e)
+      await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
+    }
+    return true
+  }
   const video = enlaceYouTube(item.url)
   if (!video) {
     const title = String(item.title || 'Ese resultado').replace(/\s+/g, ' ').trim().slice(0, 160)
@@ -745,7 +836,7 @@ async function enviarResultados({ msg, sock, q, source, results }) {
   await completarMiniaturas(results)
   const n = results.length
   const guardados = recordar(msg, results)
-  const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para bajar un video de YouTube o leer el resumen de Wikipedia.` : ''
+  const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para bajar un video de YouTube o TikTok, o leer el resumen de Wikipedia.` : ''
   await msg.reply(`❑ *Búsqueda Web*\n> ✿ ${q}\n\n✎ ${n} resultado${n === 1 ? '' : 's'}. Fuente › ${source}.${rango}`)
   for (let i = 0; i < results.length; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS))
@@ -771,7 +862,7 @@ export default {
   command: ['google', 'gg', 'buscar', 'googlesearch'],
   category: 'search',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
-    console.error('[google] build 1.1.39 numero youtube o wikipedia')
+    console.error('[google] build 1.1.41 diez tiktok miniatura')
     const p = usedPrefix || '#'
     const q = (text || args.join(' ')).trim()
     if (!q) {

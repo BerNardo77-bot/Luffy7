@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.41** — `$google` manda hasta 10 resultados, incluye TikTok cuando la API los trae, y manda la miniatura de cada resultado que trae imagen. El número baja YouTube o TikTok, o resume Wikipedia.
+
 Version **1.1.40** — `$ttsearch` junta varias búsquedas, deja hasta 10 y sube primero los títulos que coinciden. Responder con el número descarga ese video (vale 5 min).
 
 Version **1.1.39** — tras `$google`, un número solo (1–5, vale 5 min) baja el video si es YouTube, o manda el resumen de la página si es Wikipedia. Si no es ni video ni Wikipedia, avisa y deja el enlace. La lista más nueva gana.

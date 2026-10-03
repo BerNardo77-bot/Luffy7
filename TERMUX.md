@@ -2,7 +2,7 @@
 
 Bot: Yampi (WhatsApp)
 Repo: https://github.com/BerNardo77-bot/Luffy7
-Version: 1.1.40
+Version: 1.1.41
 Prefijo: # por defecto (ejemplo: #menu #ping #apk). Se cambia con #setbotprefix $
 
 Usa Termux de F-Droid, no el de Play Store.
@@ -91,7 +91,7 @@ cd ~/Luffy7
 node -p "require('./package.json').version"
 ```
 
-Debe salir: 1.1.40
+Debe salir: 1.1.41
 
 ---
 
@@ -224,7 +224,7 @@ npm install
 node -p "require('./package.json').version"
 ```
 
-Debe salir 1.1.40
+Debe salir 1.1.41
 
 `git pull` conserva tu settings.js (tu numero en global.owner y tu key se quedan). Si `git pull` se queja de cambios locales, usa `git stash`, luego `git pull` y despues `git stash pop`.
 
