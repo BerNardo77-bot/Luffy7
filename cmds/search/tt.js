@@ -6,7 +6,7 @@ import os from 'os'
 import path from 'path'
 import { prefijoActual } from '../../lib/prefijo.js'
 import { esImagen } from '../../lib/gachaImagen.js'
-import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js'
+import { savePick, readPick, clearPick, bareNumber, queryWords, scoreTitle } from '../../lib/nsfw-pick.js'
 import tiktok from '../dl/tiktok.js'
 
 const execFileAsync = promisify(execFile)
@@ -17,8 +17,72 @@ const MAX_RESULTADOS = 10
 const PAUSA_MS = 700
 const TT_SITE = 'tiktok'
 const MAX_THUMB = 2 * 1024 * 1024
+const STOP = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'y', 'o', 'en', 'con', 'por', 'para', 'que', 'the', 'of'])
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function palabrasClave(query) {
+  return queryWords(query).filter((w) => !STOP.has(w))
+}
+
+// La API solo procesa 3 o 4 de los 10 que dice encontrar.
+// La frase sola, la frase sin el número de parte, y las palabras clave
+// se juntan y luego se ordenan por cuánto coincide el título.
+function variantes(query) {
+  const q = String(query || '').trim()
+  const out = []
+  const add = (raw) => {
+    const t = String(raw || '').replace(/\s+/g, ' ').trim()
+    if (!t) return
+    if (out.some((x) => x.toLowerCase() === t.toLowerCase())) return
+    out.push(t)
+  }
+  add(q)
+  const parte = q.match(/\b(parte)\s+(\d+)\b/i)
+  if (parte) add(q.replace(parte[0], parte[1]))
+  add(palabrasClave(q).join(' '))
+  return out.slice(0, 3)
+}
+
+function puntaje(title, query) {
+  const words = palabrasClave(query)
+  const t = String(title || '').toLowerCase()
+  const n = scoreTitle(t, words)
+  if (words.length && n === 0) return -1
+  let bonus = n * 10
+  if (words.length && n === words.length) bonus += 40
+  const parte = String(query).toLowerCase().match(/\bparte\s+(\d+)\b/)
+  if (parte && new RegExp(`parte\\s*${parte[1]}\\b`).test(t)) bonus += 100
+  else if (parte && /\bparte\s+\d+\b/.test(t) && n >= Math.min(2, words.length)) bonus += 25
+  return bonus
+}
+
+function ordenarResultados(list, query) {
+  const seen = new Set()
+  const scored = []
+  for (const v of list || []) {
+    const id = String(v?.id || resultUrl(v) || '')
+    if (!id || seen.has(id)) continue
+    const title = String(v?.title || v?.desc || '')
+    const p = puntaje(title, query)
+    if (p < 0) continue
+    seen.add(id)
+    scored.push({ v, p })
+  }
+  scored.sort((a, b) => b.p - a.p)
+  return scored.slice(0, MAX_RESULTADOS).map((x) => x.v)
+}
+
+async function buscarUna(base, key, query) {
+  const url = `${base}/search/tiktok?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+  const json = await res.json().catch(() => ({}))
+  const list = json?.data || json?.result || []
+  if (!json?.status || !Array.isArray(list)) {
+    return { list: [], error: json?.message || 'Sin resultados' }
+  }
+  return { list, error: list.length ? '' : (json?.message || 'Sin resultados') }
+}
 
 function apiBase() {
   return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
@@ -137,6 +201,7 @@ function textoResultado(v, i, total) {
     `➩ *${i + 1}/${total}. ${title}*\n` +
     (author ? `> ❀ Autor › ${author}\n` : '') +
     (dur ? `> ✤ Duración › ${dur}\n` : '') +
+    `> ❖ Responde *${i + 1}* para descargar\n` +
     `> ❑ Enlace › ${link}`
   ).slice(0, 1000)
 }
@@ -307,7 +372,7 @@ export default {
   category: 'search',
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[ttsearch] build 1.1.35 portada webp a jpeg', P)
+    console.error('[ttsearch] build 1.1.40 preciso y numero', P)
     const query = args.join(' ').trim()
     if (!query) return msg.reply(`✎ Uso: ${P}ttsearch <texto>`)
 
@@ -316,24 +381,22 @@ export default {
     let last = 'Sin resultados'
 
     try {
-      let top = null
+      const variantesQ = variantes(query)
+      let pooled = []
       for (const key of apiKeys()) {
-        try {
-          const url = `${base}/search/tiktok?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
-          const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
-          const json = await res.json().catch(() => ({}))
-          const list = json?.data || json?.result || []
-          if (!json?.status || !Array.isArray(list) || !list.length) {
-            last = json?.message || last
-            continue
-          }
-          top = list.slice(0, MAX_RESULTADOS)
-          break
-        } catch (e) {
-          last = e.message || last
+        const lotes = await Promise.all(variantesQ.map((q) => buscarUna(base, key, q).catch((e) => ({
+          list: [],
+          error: e?.message || String(e)
+        }))))
+        pooled = []
+        for (const lote of lotes) {
+          if (lote.error) last = lote.error
+          if (Array.isArray(lote.list)) pooled.push(...lote.list)
         }
+        if (pooled.length) break
       }
-      if (!top) return msg.reply(`✎ No encontré resultados para *${query}*.\n${last}`)
+      const top = ordenarResultados(pooled, query)
+      if (!top.length) return msg.reply(`✎ No encontré videos cuyo título coincida con *${query}*.\n${last}`)
 
       const guardados = rememberResults(msg, top)
       const portadas = await Promise.all(top.map((v) => primeraPortada(v).catch((e) => {
@@ -342,7 +405,7 @@ export default {
       })))
 
       try {
-        const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para descargarlo.` : ''
+        const rango = guardados ? ` Responde solo el número, del 1 al ${guardados}, y lo descargo. Vale 5 min.` : ''
         await sock.sendMessage(msg.chat, {
           text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} para *${query}*.${rango}`,
           edit: status.key

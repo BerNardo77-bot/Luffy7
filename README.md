@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.40** — `$ttsearch` junta varias búsquedas, deja hasta 10 y sube primero los títulos que coinciden. Responder con el número descarga ese video (vale 5 min).
+
 Version **1.1.39** — tras `$google`, un número solo (1–5, vale 5 min) baja el video si es YouTube, o manda el resumen de la página si es Wikipedia. Si no es ni video ni Wikipedia, avisa y deja el enlace. La lista más nueva gana.
 
 Version **1.1.38** — `$google` también pone miniatura en playlists y en YouTube Music. La playlist usa la foto que devuelve YouTube. El canal usa su foto. Si no hay, ese resultado queda en texto.
