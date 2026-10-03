@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.42** — `$img ani` manda la foto oficial del personaje de Grok, no el logo de ANI News.
+
 Version **1.1.41** — `$google` manda hasta 10 resultados, incluye TikTok cuando la API los trae, y manda la miniatura de cada resultado que trae imagen. El número baja YouTube o TikTok, o resume Wikipedia.
 
 Version **1.1.40** — `$ttsearch` junta varias búsquedas, deja hasta 10 y sube primero los títulos que coinciden. Responder con el número descarga ese video (vale 5 min).
