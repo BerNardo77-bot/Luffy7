@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.43** — las interacciones de anime (`$bored`, `$bite`, `$push`, `$draw` y el resto) vuelven a mandar un gif si Alyacore no trae el listado.
+
 Version **1.1.42** — `$img ani` manda la foto oficial del personaje de Grok, no el logo de ANI News.
 
 Version **1.1.41** — `$google` manda hasta 10 resultados, incluye TikTok cuando la API los trae, y manda la miniatura de cada resultado que trae imagen. El número baja YouTube o TikTok, o resume Wikipedia.
