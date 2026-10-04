@@ -274,7 +274,7 @@ export async function startBot() {
       bootTime = Date.now();
       reconexion = 0;
       isRestarting = false;
-      const userName = sock.user.name || "Desconocido";
+      const userName = sock.user?.name || (sock.user?.id ? (await db.getSettings(sock.user.id.split(':')[0] + '@s.whatsapp.net').catch(() => null))?.namebot2 : '') || 'Luffy';
       log.success(`Conectado a: ${userName}`);
       if (!botReady) {
         botReady = true;
