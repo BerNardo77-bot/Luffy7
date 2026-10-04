@@ -1,5 +1,118 @@
 import db from "#db"
 import fetch from 'node-fetch';
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+const execFileAsync = promisify(execFile)
+const GIF_UA = 'Luffy7/1.1.43 (https://github.com/BerNardo77-bot/Luffy7)'
+
+const NEKOS = new Set(['lurk','shoot','sleep','clap','shrug','stare','wave','poke','confused','smile','peck','wink','sip','blush','smug','tickle','yeet','think','highfive','feed','wag','bite','teehee','shocked','bleh','bored','nom','nya','yawn','facepalm','cuddle','kick','happy','carry','hug','kabedon','baka','bonk','pat','angry','spin','shake','run','nod','nope','kiss','dance','punch','handshake','slap','cry','lappillow','pout','blowkiss','handhold','salute','thumbsup','laugh','tableflip'])
+const OTAKU = new Set(['airkiss','angrystare','bite','bleh','blush','brofist','celebrate','cheers','clap','confused','cool','cry','cuddle','dance','drool','evillaugh','facepalm','handhold','happy','headbang','hug','huh','kiss','laugh','lick','love','mad','nervous','no','nom','nosebleed','nuzzle','nyah','pat','peek','pinch','poke','pout','punch','roll','run','sad','scared','shout','shrug','shy','sigh','sing','sip','slap','sleep','slowclap','smack','smile','smug','sneeze','sorry','stare','stop','surprised','sweat','thumbsup','tickle','tired','wave','wink','woah','yawn','yay','yes'])
+
+// Alyacore ya no trae el listado. Estas son las reacciones equivalentes que sí existen.
+const REACTION = {
+  peek: ['peek'], comfort: ['pat', 'cuddle', 'hug'], thinkhard: ['think'], curious: ['confused', 'huh'],
+  sniff: ['nuzzle'], stare: ['stare'], trip: ['facepalm'], blowkiss: ['blowkiss', 'airkiss'],
+  snuggle: ['cuddle', 'nuzzle'], sleep: ['sleep'], cold: ['sweat'], sing: ['sing'], tickle: ['tickle'],
+  scream: ['shout'], push: ['smack', 'poke', 'kick'], nope: ['nope', 'no'], jump: ['yay', 'dance'],
+  heat: ['sweat'], gaming: ['thumbsup', 'cool'], draw: ['smile', 'yay'], call: ['wave'],
+  seduce: ['kiss', 'airkiss', 'wink'], shy: ['shy', 'blush'], slap: ['slap', 'smack'], bath: ['sip'],
+  angry: ['angry', 'mad'], bored: ['bored', 'tired', 'yawn'], bite: ['bite'], bleh: ['bleh'],
+  bonk: ['bonk', 'smack'], blush: ['blush'], impregnate: ['love', 'kiss'], bully: ['slap', 'smack', 'bonk'],
+  cry: ['cry'], happy: ['happy', 'yay'], coffee: ['sip'], clap: ['clap'], cringe: ['facepalm'],
+  dance: ['dance'], cuddle: ['cuddle'], drunk: ['woah', 'confused'], dramatic: ['cry', 'evillaugh'],
+  handhold: ['handhold', 'handshake'], eat: ['nom', 'feed'], highfive: ['highfive', 'brofist'],
+  hug: ['hug'], kill: ['mad', 'slap'], kiss: ['kiss'], kisscheek: ['peck', 'kiss'], lick: ['lick'],
+  laugh: ['laugh'], pat: ['pat'], love: ['love'], pout: ['pout'], punch: ['punch'], run: ['run'],
+  scared: ['scared', 'nervous'], sad: ['sad', 'cry'], smoke: ['sip'], smile: ['smile'], spit: ['bleh'],
+  smug: ['smug'], think: ['think'], step: ['smack', 'kick'], wave: ['wave'], walk: ['run'], wink: ['wink'],
+}
+
+function reactionCandidates(cmd) {
+  const names = REACTION[cmd] || [cmd]
+  const out = []
+  for (const name of names) {
+    if (NEKOS.has(name)) out.push(['nekos', name])
+    if (OTAKU.has(name)) out.push(['otaku', name])
+  }
+  return out
+}
+
+async function fetchJson(url, timeout = 12000) {
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': GIF_UA },
+    timeout
+  })
+  if (!res.ok) return null
+  return res.json().catch(() => null)
+}
+
+async function alyaGif(inter) {
+  const base = (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
+  let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
+  if (!key || key === 'TU-API-KEY' || key === 'undefined') key = 'LUFFY-FIX67'
+  const url = `${base}/sfw/interaction?inter=${encodeURIComponent(inter)}&key=${encodeURIComponent(key)}`
+  const json = await fetchJson(url, 12000)
+  if (json?.status && json?.result) return String(json.result)
+  return null
+}
+
+async function publicGif(kind, reaction) {
+  if (kind === 'nekos') {
+    const json = await fetchJson(`https://nekos.best/api/v2/${encodeURIComponent(reaction)}`, 15000)
+    return json?.results?.[0]?.url || null
+  }
+  const json = await fetchJson(`https://api.otakugifs.xyz/gif?reaction=${encodeURIComponent(reaction)}`, 15000)
+  return json?.url || null
+}
+
+async function mediaUrl(inter) {
+  try {
+    const alya = await alyaGif(inter)
+    if (alya) return alya
+  } catch (e) {
+    console.error('[anime/inter] alyacore', e?.message || e)
+  }
+  let last = null
+  for (const [kind, reaction] of reactionCandidates(inter).slice(0, 4)) {
+    try {
+      const url = await publicGif(kind, reaction)
+      if (url) return url
+    } catch (e) {
+      last = e
+    }
+  }
+  if (last) throw last
+  throw new Error('La API devolvió un status false o el resultado está vacío')
+}
+
+async function toMp4(buf, mime, url) {
+  const kind = `${mime || ''} ${url || ''}`.toLowerCase()
+  if (kind.includes('mp4') || kind.includes('video/')) return buf
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'luffy-inter-'))
+  const inp = path.join(dir, 'in.bin')
+  const out = path.join(dir, 'out.mp4')
+  try {
+    fs.writeFileSync(inp, buf)
+    await execFileAsync('ffmpeg', [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-i', inp,
+      '-movflags', 'faststart',
+      '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-an', '-t', '8',
+      out
+    ], { timeout: 25000 })
+    if (!fs.existsSync(out)) throw new Error('ffmpeg no escribió el mp4')
+    return fs.readFileSync(out)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 
 const captions = {
   peek: (from, to, genero) =>
@@ -212,23 +325,14 @@ export default {
         : `${fromName} ${captionText} ${getRandomSymbol()}.`
 
     try {
-      const apiUrl = `${api.url}/sfw/interaction?inter=${currentCommand}&key=${api.key}`
-      const apiRes = await fetch(apiUrl)
-      
-      if (!apiRes.ok) {
-         throw new Error(`Error de red o conexión: Código ${apiRes.status}`)
-      }
-      
-      const json = await apiRes.json()
-
-      if (!json.status || !json.result) {
-        throw new Error('La API devolvió un status false o el resultado está vacío')
-      }
-
-      const videoUrl = json.result
-
-      const videoRes = await fetch(videoUrl)
-      const videoBuffer = await videoRes.buffer()
+      const videoUrl = await mediaUrl(currentCommand)
+      const videoRes = await fetch(videoUrl, {
+        timeout: 20000,
+        headers: { 'User-Agent': GIF_UA }
+      })
+      if (!videoRes.ok) throw new Error(`No se pudo bajar el gif (${videoRes.status})`)
+      const raw = await videoRes.buffer()
+      const videoBuffer = await toMp4(raw, videoRes.headers.get('content-type'), videoUrl)
 
       await sock.sendMessage(
         msg.chat,
