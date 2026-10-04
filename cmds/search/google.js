@@ -537,6 +537,29 @@ async function aJpeg(buffer) {
   return ff.buffer || null
 }
 
+// Termux a veces no tiene sharp ni ffmpeg. La portada de TikTok es WEBP.
+// wsrv la devuelve en JPEG sin instalar nada.
+async function jpegViaProxy(imageUrl) {
+  const u = urlImagenDescargable(imageUrl)
+  if (!u) return null
+  const proxy = `https://wsrv.nl/?url=${encodeURIComponent(u)}&output=jpg&w=640&n=-1`
+  try {
+    const res = await fetch(proxy, {
+      headers: { ...HEADERS, Accept: 'image/jpeg' },
+      signal: AbortSignal.timeout(10000),
+      redirect: 'follow'
+    })
+    if (!res.ok) return null
+    const buffer = Buffer.from(await res.arrayBuffer())
+    if (!buffer.length || buffer.length > MAX_THUMB) return null
+    if (esImagen(buffer) !== 'image/jpeg') return null
+    return buffer
+  } catch (e) {
+    console.error('[google] jpeg proxy', e?.message || e)
+    return null
+  }
+}
+
 function origenDe(pageUrl) {
   try {
     const u = new URL(pageUrl)
@@ -579,7 +602,7 @@ async function bajarImagen(url, pageUrl = '') {
     const tipo = esImagen(buffer)
     if (tipo === 'image/jpeg' || tipo === 'image/png') return { buffer, mimetype: tipo }
     if (tipo === 'image/webp' || tipo === 'image/gif') {
-      const jpeg = await aJpeg(buffer)
+      const jpeg = (await aJpeg(buffer)) || (await jpegViaProxy(u))
       if (jpeg) return { buffer: jpeg, mimetype: 'image/jpeg' }
     }
     return null
@@ -670,6 +693,26 @@ function esYouTube(url) {
 }
 
 // Playlist y canal no tienen id de video. oEmbed devuelve la miniatura (la de la playlist sí).
+function esTikTok(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '')
+    return host === 'tiktok.com' || host.endsWith('.tiktok.com')
+  } catch { return false }
+}
+
+async function oembedTiktok(url) {
+  if (!esTikTok(url)) return ''
+  try {
+    const endpoint = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`
+    const json = await get(endpoint, { timeout: 6000, json: true, headers: { Accept: 'application/json' } })
+    const thumb = String(json?.thumbnail_url || '')
+    return /^https?:\/\//i.test(thumb) ? thumb : ''
+  } catch (e) {
+    console.error('[google] tiktok oembed', e?.message || e)
+    return ''
+  }
+}
+
 async function oembedThumb(url) {
   if (!esYouTube(url)) return ''
   try {
@@ -702,6 +745,11 @@ async function completarMiniaturas(results) {
   }))
   await Promise.all(results.map(async (r) => {
     r._thumb = await bajarImagen(r.image, r.url)
+    if (r._thumb || !esTikTok(r.url)) return
+    const thumb = await oembedTiktok(r.url)
+    if (!thumb || thumb === r.image) return
+    r.image = thumb
+    r._thumb = await bajarImagen(thumb, r.url)
   }))
 }
 
@@ -721,9 +769,12 @@ function recordar(msg, results) {
   for (const r of results) {
     const url = String(r?.url || '').trim()
     if (!/^https?:\/\//i.test(url)) continue
+    const image = typeof r.image === 'string' && /^https?:\/\//i.test(r.image) ? r.image : ''
     items.push({
       title: String(r.title || 'Sin título').replace(/\s+/g, ' ').trim().slice(0, 300),
-      url
+      url,
+      snippet: String(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+      image
     })
   }
   if (!items.length) return 0
@@ -757,6 +808,36 @@ async function resumenWiki(url) {
   return `❑ *${title}*\n\n${body}\n\n${url}`
 }
 
+async function thumbDeItem(item) {
+  const fake = { url: item.url, image: item.image || '', title: item.title || '' }
+  if (!fake.image) fake.image = miniaturaDirecta(fake.url)
+  if (!fake.image && esYouTube(fake.url)) {
+    fake.image = (await oembedThumb(fake.url)) || miniaturaCanal(fake.url)
+  }
+  if (!fake.image && esTikTok(fake.url)) fake.image = await oembedTiktok(fake.url)
+  if (!fake.image) await thumbsWiki([fake])
+  if (!fake.image) {
+    const html = await htmlCorto(fake.url)
+    fake.image = ogImage(html, fake.url)
+  }
+  if (!fake.image) return null
+  return bajarImagen(fake.image, fake.url)
+}
+
+async function replyConMiniatura(sock, msg, text, item) {
+  const caption = String(text || '').slice(0, 1000)
+  try {
+    const thumb = item ? await thumbDeItem(item) : null
+    if (thumb) {
+      await sock.sendMessage(msg.chat, { image: thumb.buffer, mimetype: thumb.mimetype, caption }, { quoted: msg })
+      return
+    }
+  } catch (e) {
+    console.error('[google] miniatura respuesta', e?.message || e)
+  }
+  await msg.reply(text)
+}
+
 function enlaceYouTube(url) {
   const id = youtubeVideoId(url)
   return id ? `https://youtu.be/${id}` : ''
@@ -783,16 +864,22 @@ async function takeNumber({ msg, sock, usedPrefix }) {
         await msg.reply(`No pude leer el resumen de Wikipedia.\n${item.url}`)
         return true
       }
-      await msg.reply(text)
+      await replyConMiniatura(sock, msg, text, item)
     } catch (e) {
       console.error('[google] wiki', e?.message || e)
       await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
     }
     return true
   }
-  if (/tiktok\.com/i.test(item.url)) {
+  if (esTikTok(item.url)) {
     clearPick(msg)
     try {
+      const card = (
+        `➩ *${n}. ${short(item.title || 'TikTok', 120)}*\n` +
+        (item.snippet ? `> ${short(item.snippet)}\n` : '') +
+        `> ❑ ${item.url}`
+      )
+      await replyConMiniatura(sock, msg, card, item)
       await tiktok.run({ msg, sock, args: [item.url], command: 'tiktok', usedPrefix })
     } catch (e) {
       console.error('[google] tiktok', e?.message || e)
@@ -803,11 +890,17 @@ async function takeNumber({ msg, sock, usedPrefix }) {
   const video = enlaceYouTube(item.url)
   if (!video) {
     const title = String(item.title || 'Ese resultado').replace(/\s+/g, ' ').trim().slice(0, 160)
-    await msg.reply(`《✧》 *${title}* no es un video de YouTube. No lo bajo.\n${item.url}`)
+    await replyConMiniatura(sock, msg, `《✧》 *${title}* no es un video de YouTube. No lo bajo.\n${item.url}`, item)
     return true
   }
   clearPick(msg)
   try {
+    const card = (
+      `➩ *${n}. ${short(item.title || 'YouTube', 120)}*\n` +
+      (item.snippet ? `> ${short(item.snippet)}\n` : '') +
+      `> ❑ ${video}`
+    )
+    await replyConMiniatura(sock, msg, card, { ...item, url: video, image: item.image || miniaturaDirecta(video) })
     await play2.run({ msg, sock, args: [video], usedPrefix })
   } catch (e) {
     console.error('[google] descarga', e?.message || e)
@@ -862,7 +955,7 @@ export default {
   command: ['google', 'gg', 'buscar', 'googlesearch'],
   category: 'search',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
-    console.error('[google] build 1.1.41 diez tiktok miniatura')
+    console.error('[google] build 1.1.45 miniatura en la tarjeta')
     const p = usedPrefix || '#'
     const q = (text || args.join(' ')).trim()
     if (!q) {

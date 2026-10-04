@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.45** — `$google` manda la miniatura en la tarjeta del resultado (YouTube, TikTok o Wikipedia), en la lista y al responder con el número. Si la portada viene en WEBP y no hay sharp ni ffmpeg, igual la convierte a JPEG. Si no hay foto, queda el texto.
+
 Version **1.1.44** — `$cum`, `$anal`, `$fuck`, `$bj` y el resto de interacciones NSFW vuelven a mandar un gif si Alyacore responde HTTP 500.
 
 Version **1.1.43** — las interacciones de anime (`$bored`, `$bite`, `$push`, `$draw` y el resto) vuelven a mandar un gif si Alyacore no trae el listado.
