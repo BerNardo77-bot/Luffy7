@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.44** — `$cum`, `$anal`, `$fuck`, `$bj` y el resto de interacciones NSFW vuelven a mandar un gif si Alyacore responde HTTP 500.
+
 Version **1.1.43** — las interacciones de anime (`$bored`, `$bite`, `$push`, `$draw` y el resto) vuelven a mandar un gif si Alyacore no trae el listado.
 
 Version **1.1.42** — `$img ani` manda la foto oficial del personaje de Grok, no el logo de ANI News.
