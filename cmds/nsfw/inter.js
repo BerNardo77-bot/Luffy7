@@ -1,8 +1,38 @@
 import db from "#db"
 import fetch from 'node-fetch'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 
+const execFileAsync = promisify(execFile)
+const GIF_UA = 'Luffy7/1.1.44 (https://github.com/BerNardo77-bot/Luffy7)'
 const FALLBACK_KEY = 'LUFFY-FIX67'
-const MAX_RETRIES = 3
+
+// Alyacore /nsfw/interaction responde HTTP 500. Estas categorías de Purrbot sí existen (sin clave).
+const PURR = {
+  anal: ['anal'],
+  cum: ['cum'],
+  cumshot: ['cum'],
+  cummouth: ['cum'],
+  undress: ['solo'],
+  fuck: ['fuck'],
+  spank: ['spank'],
+  lickpussy: ['pussylick'],
+  fap: ['solo', 'solo_male'],
+  grope: ['solo'],
+  sixnine: ['blowjob'],
+  suckboobs: ['solo'],
+  grabboobs: ['solo'],
+  blowjob: ['blowjob'],
+  boobjob: ['solo'],
+  yuri: ['yuri'],
+  footjob: ['fuck'],
+  handjob: ['solo_male'],
+  lickass: ['anal'],
+  lickdick: ['blowjob'],
+}
 
 const captions = {
   anal: (from, to) => from === to ? 'se la metió en el ano.' : 'se la metió en el ano a',
@@ -73,10 +103,6 @@ function getBase() {
   return (typeof api !== 'undefined' && api?.url ? String(api.url) : 'https://api.alyacore.xyz').replace(/\/$/, '')
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
 function isTransient(err) {
   const code = err?.code || err?.errno || ''
   const msg = String(err?.message || err || '')
@@ -90,45 +116,91 @@ function isTransient(err) {
   )
 }
 
-async function fetchInteraction(inter) {
+async function alyaGif(inter) {
   const base = getBase()
   const keys = [getKey()]
   if (keys[0] !== FALLBACK_KEY) keys.push(FALLBACK_KEY)
-
   let lastErr = null
   for (const key of keys) {
     const url = `${base}/nsfw/interaction?inter=${encodeURIComponent(inter)}&key=${encodeURIComponent(key)}`
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-            Accept: 'application/json'
-          },
-          timeout: 45000
-        })
-        if (!response.ok) {
-          lastErr = new Error(`HTTP ${response.status}`)
-          if (response.status >= 500 && attempt < MAX_RETRIES) {
-            await sleep(800 * attempt)
-            continue
-          }
-          continue
-        }
-        const json = await response.json().catch(() => ({}))
-        if (json?.status && json?.result) return json
-        lastErr = new Error(json?.message || 'sin resultado')
-      } catch (e) {
-        lastErr = e
-        if (isTransient(e) && attempt < MAX_RETRIES) {
-          console.error(`[nsfw/inter] reintento ${attempt}/${MAX_RETRIES}`, e.code || e.message)
-          await sleep(900 * attempt)
-          continue
-        }
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': GIF_UA,
+          Accept: 'application/json'
+        },
+        timeout: 12000
+      })
+      if (!response.ok) {
+        lastErr = new Error(`HTTP ${response.status}`)
+        continue
       }
+      const json = await response.json().catch(() => ({}))
+      if (json?.status && json?.result) return String(json.result)
+      lastErr = new Error(json?.message || 'sin resultado')
+    } catch (e) {
+      lastErr = e
     }
   }
-  throw lastErr || new Error('API NSFW no respondio')
+  if (lastErr) console.error('[nsfw/inter] alyacore', lastErr?.message || lastErr)
+  return null
+}
+
+async function purrGif(inter) {
+  const cats = PURR[inter] || []
+  let last = null
+  for (const cat of cats) {
+    const url = `https://api.purrbot.site/v2/img/nsfw/${encodeURIComponent(cat)}/gif`
+    try {
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json', 'User-Agent': GIF_UA },
+        timeout: 15000
+      })
+      if (!response.ok) {
+        last = new Error(`purrbot HTTP ${response.status}`)
+        continue
+      }
+      const json = await response.json().catch(() => ({}))
+      if (json && json.error === false && json.link) return String(json.link)
+      last = new Error('purrbot sin link')
+    } catch (e) {
+      last = e
+    }
+  }
+  if (last) throw last
+  return null
+}
+
+async function mediaUrl(inter) {
+  const alya = await alyaGif(inter)
+  if (alya) return alya
+  const purr = await purrGif(inter)
+  if (purr) return purr
+  throw new Error('HTTP 500')
+}
+
+async function toMp4(buf, mime, url) {
+  const kind = `${mime || ''} ${url || ''}`.toLowerCase()
+  if (kind.includes('mp4') || kind.includes('video/')) return buf
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'luffy-nsfw-'))
+  const inp = path.join(dir, 'in.bin')
+  const out = path.join(dir, 'out.mp4')
+  try {
+    fs.writeFileSync(inp, buf)
+    await execFileAsync('ffmpeg', [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-i', inp,
+      '-movflags', 'faststart',
+      '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-an', '-t', '8',
+      out
+    ], { timeout: 25000 })
+    if (!fs.existsSync(out)) throw new Error('ffmpeg no escribió el mp4')
+    return fs.readFileSync(out)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 export default {
@@ -165,11 +237,18 @@ export default {
         : `${fromName} ${captionText} ${getRandomSymbol()}.`
 
     try {
-      const json = await fetchInteraction(baseCommand)
+      const videoUrl = await mediaUrl(baseCommand)
+      const videoRes = await fetch(videoUrl, {
+        timeout: 20000,
+        headers: { 'User-Agent': GIF_UA }
+      })
+      if (!videoRes.ok) throw new Error(`No se pudo bajar el gif (${videoRes.status})`)
+      const raw = await videoRes.buffer()
+      const videoBuffer = await toMp4(raw, videoRes.headers.get('content-type'), videoUrl)
       await sock.sendMessage(
         msg.chat,
         {
-          video: { url: json.result },
+          video: videoBuffer,
           gifPlayback: true,
           caption,
           mentions: [who, msg.sender]
