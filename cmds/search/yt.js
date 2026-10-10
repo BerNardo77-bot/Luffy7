@@ -3,6 +3,9 @@ import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js';
 import play2, { MAX_DURATION_SEC, parseDurationToSeconds } from '../dl/play2.js';
+import { MAX_VIDEO_MIN } from '../../lib/limits.js';
+import { parseDurationFilter, filterLabel, passes } from '../../lib/dur-filter.js';
+import { ytdlpSearch, fmtClock } from '../../lib/mediadl.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 // Cuántos resultados se mandan (cada uno es un mensaje con su miniatura)
@@ -83,7 +86,7 @@ async function takeNumber({ msg, sock, usedPrefix }) {
     const title = String(item.title || 'Ese video').replace(/\s+/g, ' ').trim().slice(0, 160)
     await msg.reply(
       `《✧》 *${title}* dura ~${Math.round(sec / 60)} min.\n` +
-      `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo). No lo bajo.\n` +
+      `El límite es ${MAX_VIDEO_MIN} min (como ${P}ytvideo). No lo bajo.\n` +
       `🔗 ${item.url}`
     )
     return true
@@ -118,7 +121,7 @@ export async function before(ctx) {
 function textoResultado(v, i, total) {
   const title = v.title || '?'
   const author = v.autor || v.author?.name || v.author || v.channel || ''
-  const dur = v.duration || v.timestamp || ''
+  const dur = v.duration || v.timestamp || (resultSeconds(v) ? fmtClock(resultSeconds(v)) : '')
   // Los directos llegan con 0 vistas y sin duración: no se muestran esos campos
   const views = v.views && String(v.views) !== '0' ? v.views : ''
   const up = v.uploaded || v.ago || ''
@@ -151,34 +154,47 @@ export default {
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
     console.error('[ytsearch] build 1.1.33 numero descarga ytvideo', P)
-    const query = args.join(' ').trim()
+    const raw = args.join(' ').trim()
+    const filtro = parseDurationFilter(raw)
+    const query = filtro.query
     if (!query) {
-      return msg.reply(`✎ Uso: ${P}ytsearch <texto>\nEjemplo: ${P}ytsearch quien es Anubis`)
+      return msg.reply(`✎ Uso: ${P}ytsearch <texto> [+20min | -5min | +1h | largo]\nEjemplo: ${P}ytsearch Naruto vs Orochimaru +20min`)
     }
 
-    const status = await msg.reply('✎ Buscando en YouTube...')
+    const status = await msg.reply(`✎ Buscando en YouTube${filtro.active ? ` videos ${filterLabel(filtro)}` : ''}...`)
     const base = apiBase()
     let last = 'Sin resultados'
-
-    // 1) Búsqueda: si falla aquí es que de verdad no hubo resultados
-    let top = null
-    for (const key of apiKeys()) {
-      try {
-        const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
-        const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
-        const json = await res.json().catch(() => ({}))
-        const list = json?.result || json?.data || []
-        if (!json?.status || !Array.isArray(list) || !list.length) {
-          last = json?.message || last
-          continue
+    let list = null
+    // Con filtro de duración se usa yt-dlp (trae duración exacta y más resultados)
+    if (!filtro.active) {
+      for (const key of apiKeys()) {
+        try {
+          const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+          const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+          const json = await res.json().catch(() => ({}))
+          const l = json?.result || json?.data || []
+          if (!json?.status || !Array.isArray(l) || !l.length) {
+            last = (res.status === 429 || json?.code === 429) ? 'alyacore sin saldo (429)' : (json?.message || last)
+            continue
+          }
+          list = l
+          break
+        } catch (e) {
+          last = e.message || last
         }
-        top = list.slice(0, MAX_RESULTADOS)
-        break
-      } catch (e) {
-        last = e.message || last
       }
     }
-    if (!top) return msg.reply(`✎ No encontré videos para *${query}*.\n${last}`)
+    if (!list) {
+      try {
+        list = await ytdlpSearch(query, filtro.active ? 40 : 15)
+      } catch (e) {
+        last += ` · yt-dlp: ${String(e?.message || e).slice(0, 120)}`
+      }
+    }
+    let top = (list || []).filter((v) => passes(resultSeconds(v), filtro)).slice(0, MAX_RESULTADOS)
+    if (!top.length) {
+      return msg.reply(`✎ No encontré videos${filtro.active ? ` ${filterLabel(filtro)}` : ''} para *${query}*.\n${last}`)
+    }
 
     const guardados = rememberResults(msg, top)
 

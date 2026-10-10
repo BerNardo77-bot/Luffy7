@@ -8,6 +8,8 @@ import { prefijoActual } from '../../lib/prefijo.js'
 import { esImagen } from '../../lib/gachaImagen.js'
 import { savePick, readPick, clearPick, bareNumber, queryWords, scoreTitle } from '../../lib/nsfw-pick.js'
 import tiktok from '../dl/tiktok.js'
+import { parseDurationFilter, filterLabel, passes } from '../../lib/dur-filter.js'
+import { fmtClock } from '../../lib/mediadl.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -79,7 +81,8 @@ async function buscarUna(base, key, query) {
   const json = await res.json().catch(() => ({}))
   const list = json?.data || json?.result || []
   if (!json?.status || !Array.isArray(list)) {
-    return { list: [], error: json?.message || 'Sin resultados' }
+    const sinSaldo = res.status === 429 || Number(json?.code) === 429 || /saldo/i.test(String(json?.message || ''))
+    return { list: [], error: sinSaldo ? 'La API de alyacore se quedó sin saldo (429): hace falta una key nueva en settings.js. Mientras, manda el enlace con #tiktok.' : (json?.message || 'Sin resultados') }
   }
   return { list, error: list.length ? '' : (json?.message || 'Sin resultados') }
 }
@@ -164,16 +167,23 @@ function autorDe(result) {
   return nick || (uid ? `@${uid}` : '')
 }
 
-function duracionDe(result) {
+// Segundos del resultado. La API a veces da ms: solo se toma como ms si pasa de 10 h
+// (antes ">1000" convertía un video de 24 min = 1440 s en 1 s).
+function segundosDe(result) {
   const d = result?.duration ?? result?.video?.duration ?? ''
-  if (d == null || d === '') return ''
-  if (typeof d === 'number' && Number.isFinite(d)) {
-    const sec = d > 1000 ? Math.round(d / 1000) : Math.round(d)
-    const m = Math.floor(sec / 60)
-    const s = sec % 60
-    return `${m}:${String(s).padStart(2, '0')}`
-  }
-  return String(d).trim()
+  if (d == null || d === '') return 0
+  const n = typeof d === 'number' ? d : (/^\d+(\.\d+)?$/.test(String(d).trim()) ? Number(d) : NaN)
+  if (Number.isFinite(n)) return n > 36000 ? Math.round(n / 1000) : Math.round(n)
+  const parts = String(d).trim().split(':').map(Number)
+  if (parts.length > 1 && parts.every(Number.isFinite)) return parts.reduce((a, x) => a * 60 + x, 0)
+  return 0
+}
+
+function duracionDe(result) {
+  const sec = segundosDe(result)
+  if (sec) return fmtClock(sec)
+  const d = result?.duration ?? result?.video?.duration ?? ''
+  return d == null ? '' : String(d).trim()
 }
 
 function rememberResults(msg, list) {
@@ -373,10 +383,11 @@ export default {
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
     console.error('[ttsearch] build 1.1.40 preciso y numero', P)
-    const query = args.join(' ').trim()
-    if (!query) return msg.reply(`✎ Uso: ${P}ttsearch <texto>`)
+    const filtro = parseDurationFilter(args.join(' ').trim())
+    const query = filtro.query
+    if (!query) return msg.reply(`✎ Uso: ${P}ttsearch <texto> [+20min | -5min | +1h | largo]`)
 
-    const status = await msg.reply('✎ Buscando en TikTok...')
+    const status = await msg.reply(`✎ Buscando en TikTok${filtro.active ? ` videos ${filterLabel(filtro)}` : ''}...`)
     const base = apiBase()
     let last = 'Sin resultados'
 
@@ -395,8 +406,9 @@ export default {
         }
         if (pooled.length) break
       }
+      if (filtro.active) pooled = pooled.filter((v) => passes(segundosDe(v), filtro))
       const top = ordenarResultados(pooled, query)
-      if (!top.length) return msg.reply(`✎ No encontré videos cuyo título coincida con *${query}*.\n${last}`)
+      if (!top.length) return msg.reply(`✎ No encontré videos${filtro.active ? ` ${filterLabel(filtro)}` : ''} cuyo título coincida con *${query}*.\n${last}`)
 
       const guardados = rememberResults(msg, top)
       const portadas = await Promise.all(top.map((v) => primeraPortada(v).catch((e) => {

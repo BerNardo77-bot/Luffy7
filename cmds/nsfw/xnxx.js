@@ -1,3 +1,5 @@
+import { MAX_VIDEO_MIN, MAX_VIDEO_SEC } from '../../lib/limits.js'
+import { ytdlpToFile, urlToFile, sendVideoFile, friendlyError, isNoCredit } from '../../lib/mediadl.js'
 import db from "#db"
 import fetch from "node-fetch"
 import { prefijoActual } from '../../lib/prefijo.js'
@@ -12,7 +14,7 @@ import {
 } from "../../lib/nsfw-pick.js"
 import { enviarOpciones } from "../../lib/nsfw-choice.js"
 
-const MAX_DURATION_SEC = 20 * 60 // mismo tope seguro que #ytvideo; no se sube
+const MAX_DURATION_SEC = MAX_VIDEO_SEC // MAX_VIDEO_MIN compartido (60 min por defecto)
 
 function parseDurationToSeconds(ts) {
   if (typeof ts === 'number' && Number.isFinite(ts)) return ts
@@ -39,66 +41,65 @@ function apiKey() {
   return key
 }
 
+async function ytdlpXnxx({ msg, sock, videoUrl, motivo }) {
+  try {
+    await msg.reply(`《✧》 ${motivo ? motivo + '; ' : ''}bajando con yt-dlp…`)
+    const got = await ytdlpToFile(videoUrl, { maxSec: MAX_DURATION_SEC, tag: 'xnxx' })
+    await sendVideoFile(sock, msg, got.file, { caption: `XNXX ${got.height ? got.height + 'p' : ''}`.trim(), fileName: 'xnxx.mp4' })
+  } catch (e) {
+    console.error('[xnxx] yt-dlp', e?.message || e)
+    await msg.reply(friendlyError(e, { maxMin: MAX_VIDEO_MIN, link: videoUrl }))
+  }
+}
+
 async function deliverXnxx({ msg, sock, videoUrl, durationSec = 0, prefix = '' }) {
-  const P = prefix
   if (durationSec > MAX_DURATION_SEC) {
     return msg.reply(
-      `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
-      `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo).\n` +
+      `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min. El límite es ${MAX_VIDEO_MIN} min.\n` +
       `Abre el link:\n${videoUrl}`
     )
   }
 
-  const base = apiBase()
-  const key = apiKey()
-  const downloadUrl = `${base}/nsfw/dl/xnxx?url=${encodeURIComponent(videoUrl)}&key=${encodeURIComponent(key)}`
-  const downloadRes = await fetch(downloadUrl)
-  if (!downloadRes.ok) return msg.reply("Error al descargar el video")
-
-  const downloadJson = await downloadRes.json()
-  if (!downloadJson.status || !downloadJson.resultado || !downloadJson.resultado.result) {
-    return msg.reply("No se pudo obtener el video para descargar.")
+  const downloadUrl = `${apiBase()}/nsfw/dl/xnxx?url=${encodeURIComponent(videoUrl)}&key=${encodeURIComponent(apiKey())}`
+  let downloadJson = {}
+  let status = 0
+  try {
+    const downloadRes = await fetch(downloadUrl)
+    status = downloadRes.status
+    downloadJson = await downloadRes.json().catch(() => ({}))
+  } catch (e) { console.error('[xnxx] api', e?.message || e) }
+  const result = downloadJson?.resultado?.result
+  if (!downloadJson?.status || !result) {
+    const motivo = isNoCredit(downloadJson, status) ? 'alyacore se quedó sin saldo (429)' : 'la API falló'
+    return ytdlpXnxx({ msg, sock, videoUrl, motivo })
   }
 
-  const result = downloadJson.resultado.result
-  if (!durationSec) {
-    durationSec = parseDurationToSeconds(result.duration || result.length || '')
-  }
+  if (!durationSec) durationSec = parseDurationToSeconds(result.duration || result.length || '')
   if (durationSec > MAX_DURATION_SEC) {
-    return msg.reply(
-      `《✧》 Ese video dura ~${Math.round(durationSec / 60)} min.\n` +
-      `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min.\n${videoUrl}`
-    )
+    return msg.reply(`《✧》 Ese video dura ~${Math.round(durationSec / 60)} min. El límite es ${MAX_VIDEO_MIN} min.\n${videoUrl}`)
   }
 
   const dl = result.download || {}
-  // Misma calidad de siempre: high y luego low. XNXX no comparte el descargador de xvideos.
   const links = []
   if (dl.high) links.push({ q: 'high', url: dl.high })
   if (dl.low) links.push({ q: 'low', url: dl.low })
   if (dl.url) links.push({ q: 'url', url: dl.url })
-  if (!links.length) return msg.reply("No se pudo obtener el video para descargar.")
+  if (!links.length) return ytdlpXnxx({ msg, sock, videoUrl, motivo: 'la API no dio enlace' })
 
   let lastErr = null
   for (const item of links) {
     try {
-      await msg.reply(`《✧》 Enviando XNXX (*${item.q}*)…`)
-      await sock.sendMessage(msg.chat, {
-        video: { url: item.url },
-        mimetype: "video/mp4",
-        caption: item.q === 'high' ? 'XNXX (HD)' : 'XNXX'
-      }, { quoted: msg })
+      await msg.reply(`《✧》 Bajando XNXX (*${item.q}*)…`)
+      const got = await urlToFile(item.url, { tag: 'xnxx' })
+      await sendVideoFile(sock, msg, got.file, { caption: item.q === 'high' ? 'XNXX (HD)' : 'XNXX', fileName: 'xnxx.mp4' })
       return
     } catch (e) {
       lastErr = e
       console.error('[xnxx] send', item.q, e?.message || e)
+      if (/^NO_SPACE:/.test(String(e?.message))) break
     }
   }
-
-  return msg.reply(
-    `《✧》 No pude enviar el archivo por WhatsApp.\nAbre el link:\n${links[0].url}\n` +
-    (lastErr?.message ? `(${lastErr.message})` : '')
-  )
+  return msg.reply(friendlyError(lastErr, { maxMin: MAX_VIDEO_MIN, link: videoUrl }))
 }
 
 async function takeNumber({ msg, sock }, forced = 0) {
