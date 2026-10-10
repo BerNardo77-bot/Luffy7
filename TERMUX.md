@@ -251,3 +251,13 @@ Se desconecto y pide QR otra vez: borraste Sessions o cerraste el dispositivo vi
 Spotify: deja un espacio. Ejemplo: #sp https://open.spotify.com/track/...
 
 No uses curl a raw.githubusercontent.com (429). Actualiza solo con git pull.
+
+## Videos largos y en alta calidad (v1.1.46)
+
+- `$ytvideo`, `$ytsearch` (número), `$tiktok`, `$xnxx`: hasta **60 min** (cambia con la variable `MAX_VIDEO_MIN`).
+- Calidad: la mejor H.264 hasta **1080p**, sin recomprimir. Si pasa de **500 MB** baja a 720p/480p.
+- Hasta 64 MB llega como video; más pesado llega como **documento** (misma calidad).
+- `$ig`, `$fb`, `$xnxx`: si alyacore falla o se quedó sin saldo, se usa **yt-dlp** en el teléfono.
+- Filtros de duración: `$ytsearch Naruto vs Orochimaru +20min`, `-5min`, `+1h`, `largo`. También en `$ttsearch`.
+- Necesitas espacio libre: ~2 veces lo que pese el video (un video de 500 MB pide ~1 GB libre). Los temporales van a `~/Luffy7/tmp` y se borran al enviar.
+- Mantén yt-dlp al día: `pkg upgrade yt-dlp` (o `pip install -U yt-dlp` si lo instalaste con pip).

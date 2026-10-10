@@ -4,3 +4,4 @@ database.json
 *.log
 lib/system/tmp/
 .env
+tmp/

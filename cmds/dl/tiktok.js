@@ -9,7 +9,9 @@ import { prefijoActual } from '../../lib/prefijo.js';
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
-const MAX_DURATION_SEC = 20 * 60 // mismo tope seguro que #ytvideo
+import { MAX_VIDEO_MIN, MAX_VIDEO_SEC } from '../../lib/limits.js'
+import { ytdlpToFile, urlToFile, sendVideoFile, friendlyError, isNoCredit, NO_CREDIT_MSG } from '../../lib/mediadl.js'
+const MAX_DURATION_SEC = MAX_VIDEO_SEC // MAX_VIDEO_MIN compartido (60 min por defecto)
 const MAX_SEND = 64 * 1024 * 1024
 const FFMPEG_TIMEOUT_MS = 240000
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
@@ -59,70 +61,15 @@ async function probeDuration(filePath) {
   }
 }
 
-async function compressForWhatsApp(inputBuf, baseName) {
-  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
-  const inFile = path.join(TMP_DIR, `${baseName}-in.mp4`)
-  const outFile = path.join(TMP_DIR, `${baseName}-out.mp4`)
-  fs.writeFileSync(inFile, inputBuf)
-  try {
-    await execFileAsync('ffmpeg', [
-      '-y', '-i', inFile,
-      '-map', '0:v:0', '-map', '0:a:0?',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
-      '-vf', "scale='min(720,iw)':-2,fps=30",
-      '-c:a', 'aac', '-b:a', '96k',
-      '-movflags', '+faststart',
-      outFile
-    ], { timeout: FFMPEG_TIMEOUT_MS })
-    if (!fs.existsSync(outFile)) return null
-    const out = fs.readFileSync(outFile)
-    return out.length ? out : null
-  } catch (e) {
-    console.error('[tiktok] ffmpeg', e?.message || e)
-    return null
-  } finally {
-    try { fs.unlinkSync(inFile) } catch {}
-    try { fs.unlinkSync(outFile) } catch {}
-  }
-}
-
+// Mejor calidad ≤1080p, a disco, tope 500 MB. Sin reencodear.
 async function ytDlpTiktok(videoUrl) {
-  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
-  const base = path.join(TMP_DIR, `tt-${Date.now()}`)
-  const outTpl = base + '.%(ext)s'
-  // best HD but cap height 1080 to limit RAM on Northflank
-  const args = [
-    '-f', 'best[ext=mp4][height<=1080]/best[height<=1080]/best',
-    '--no-playlist',
-    '-o', outTpl,
-    videoUrl
-  ]
-  await execFileAsync('yt-dlp', args, { timeout: 180000, maxBuffer: 20 * 1024 * 1024 })
-  const hit = fs.readdirSync(TMP_DIR).find((f) => f.startsWith(path.basename(base)) && f.endsWith('.mp4'))
-  if (!hit) throw new Error('yt-dlp no genero mp4')
-  const full = path.join(TMP_DIR, hit)
-  const dur = await probeDuration(full)
-  if (dur > MAX_DURATION_SEC) {
-    try { fs.unlinkSync(full) } catch {}
-    const err = new Error(`TOO_LONG:${Math.round(dur)}`)
-    throw err
-  }
-  let buf = fs.readFileSync(full)
-  try { fs.unlinkSync(full) } catch {}
-  if (buf.length > MAX_SEND) {
-    const compressed = await compressForWhatsApp(buf, `${Date.now()}-tt`)
-    if (!compressed || compressed.length > MAX_SEND) {
-      throw new Error(`TOO_HEAVY:${mb(buf.length)}`)
-    }
-    buf = compressed
-  }
-  return buf
+  return ytdlpToFile(videoUrl, { heights: [1080, 720, 480], maxSec: MAX_DURATION_SEC, tag: 'tt' })
 }
 
 function tooLongReply(sec, link, P = '#') {
   return (
     `《✧》 Ese TikTok dura ~${Math.round(sec / 60)} min.\n` +
-    `Límite seguro: ~${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo).\n` +
+    `El límite es ${MAX_VIDEO_MIN} min.\n` +
     (link ? `Abre el link:\n${link}` : '')
   )
 }
@@ -132,7 +79,7 @@ export default {
   category: 'downloader',
   run: async ({ msg, sock, args, command, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[tiktok] build 120-safe 20min')
+    console.error('[tiktok] build 1.1.46 yt-dlp ≤1080p, doc >64 MB')
 
     if (!args.length) {
       return msg.reply(`✿ Ingresa un término o enlace de TikTok.`)
@@ -143,6 +90,19 @@ export default {
 
     if (urls.length) {
       const url = urls[0]
+      if (!isMp3) {
+        try {
+          await msg.reply('《✧》 Bajando TikTok en la mejor calidad (yt-dlp)…')
+          const got = await ytDlpTiktok(url)
+          await sendVideoFile(sock, msg, got.file, { caption: `🎬 TikTok${got.height ? ' ' + got.height + 'p' : ''}${got.title ? '\n' + got.title.slice(0, 200) : ''}`, fileName: 'tiktok.mp4' })
+          return
+        } catch (e) {
+          console.error('[tiktok] yt-dlp', e?.message || e)
+          if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) {
+            return msg.reply(friendlyError(e, { maxMin: MAX_VIDEO_MIN, link: url }))
+          }
+        }
+      }
       try {
         let data = null
         let last = 'sin data'
@@ -154,33 +114,11 @@ export default {
             const res = await fetch(apiUrl)
             const json = await res.json().catch(() => ({}))
             if (json?.data?.dl) { data = json.data; break }
-            last = json?.message || last
+            last = isNoCredit(json, res.status) ? NO_CREDIT_MSG : (json?.message || last)
           } catch (e) { last = e.message || last }
         }
 
-        if (!data && !isMp3) {
-          try {
-            await msg.reply('《✧》 API falló; bajando TikTok HD con yt-dlp…')
-            const buf = await ytDlpTiktok(url)
-            await sock.sendMessage(msg.chat, {
-              video: buf,
-              mimetype: 'video/mp4',
-              caption: '🎬 TikTok (HD yt-dlp)'
-            }, { quoted: msg })
-            return
-          } catch (e) {
-            console.error('[tiktok] yt-dlp', e)
-            const m = String(e?.message || e)
-            if (m.startsWith('TOO_LONG:')) {
-              return msg.reply(tooLongReply(Number(m.split(':')[1]) || 0, url, P))
-            }
-            if (m.startsWith('TOO_HEAVY:')) {
-              return msg.reply(`《✧》 El archivo pesa ~${m.split(':')[1]} MB y no cabe en WhatsApp (~64 MB).\n${url}`)
-            }
-          }
-        }
-
-        if (!data) return msg.reply(`✿ No se encontraron resultados para: ${url}\n${last}`)
+        if (!data) return msg.reply(`✿ No pude bajar ese TikTok.\n• yt-dlp falló (prueba: pkg upgrade yt-dlp)\n• Respaldo: ${last}\n${url}`)
 
         const {
           id,
@@ -219,8 +157,14 @@ export default {
           await sock.sendMessage(msg.chat, { audio: { url: dl }, mimetype: 'audio/mpeg', fileName: `${title}.mp3` }, { quoted: msg })
         } else {
           try {
-            await sock.sendMessage(msg.chat, { [type || 'video']: { url: dl }, caption }, { quoted: msg })
+            if (type && type !== 'video') {
+              await sock.sendMessage(msg.chat, { [type]: { url: dl }, caption }, { quoted: msg })
+            } else {
+              const got = await urlToFile(dl, { tag: 'tt-api' })
+              await sendVideoFile(sock, msg, got.file, { caption, fileName: 'tiktok.mp4' })
+            }
           } catch (e) {
+            if (/^(TOO_BIG|NO_SPACE):/.test(String(e?.message))) return msg.reply(friendlyError(e, { link: tiktokLink || url }))
             console.error('[tiktok] send api', e)
             await msg.reply(`《✧》 No pude enviar el video por WhatsApp.\n${tiktokLink || url}`)
           }
@@ -324,7 +268,7 @@ export default {
           if (medias.length) {
             await sock.sendAlbumMessage(msg.chat, medias, { quoted: msg })
           } else {
-            await msg.reply('✿ No se pudieron procesar los resultados (o todos pasaban de 20 min).')
+            await msg.reply(`✿ No se pudieron procesar los resultados (o todos pasaban de ${MAX_VIDEO_MIN} min).`)
           }
         }
       } catch (e) {

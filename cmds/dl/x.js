@@ -3,10 +3,12 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
 import path from 'path'
+import { MAX_FILE_BYTES, urlToFile, sendVideoFile, ytdlpToFile, friendlyError } from '../../lib/mediadl.js'
+import { MAX_VIDEO_SEC } from '../../lib/limits.js'
 
 const execFileAsync = promisify(execFile)
 const MAX_SEND = 64 * 1024 * 1024 // tope seguro video/imagen en WhatsApp
-const MAX_DOC = 100 * 1024 * 1024 // si pesa más que MAX_SEND pero menos que esto → documento
+const MAX_DOC = MAX_FILE_BYTES // más de MAX_SEND y hasta 500 MB → documento
 const MAX_MEDIA = 10
 const TMP_DIR = path.join(process.cwd(), 'lib', 'system', 'tmp', 'x-dl') // gitignored
 // UA sin 'Mozilla': api.vxtwitter.com (Cloudflare) da 403 a UAs tipo navegador.
@@ -143,25 +145,23 @@ async function download(url) {
   return res.buffer()
 }
 
-// Elige la mejor calidad que quepa en WhatsApp; si ninguna cabe, devuelve la más chica como documento
+// Videos: la mejor calidad que pese ≤500 MB, a disco (≤64 MB video, arriba documento).
+// Imágenes: en memoria (son chicas).
 async function fetchMedia(item) {
-  let smallest = null
+  if (item.type === 'image') return { buf: await download(item.urls[0]), asDoc: false }
+  let lastErr = null
   for (const url of item.urls) {
     const size = await headSize(url)
-    if (size && size > MAX_SEND) {
-      if (!smallest || size < smallest.size) smallest = { url, size }
-      continue
+    if (size && size > MAX_DOC) { lastErr = new Error(`TOO_HEAVY:${mb(size)}`); lastErr.url = url; continue }
+    try {
+      const got = await urlToFile(url, { tag: 'x', headers: UA })
+      return { file: got.file, size: got.size }
+    } catch (e) {
+      lastErr = /^TOO_BIG:/.test(e?.message) ? Object.assign(new Error(`TOO_HEAVY:${e.message.split(':')[1]}`), { url }) : e
+      if (/^NO_SPACE:/.test(e?.message)) break
     }
-    const buf = await download(url)
-    if (buf.length <= MAX_SEND) return { buf, asDoc: false }
-    if (!smallest || buf.length < smallest.size) smallest = { url, size: buf.length }
   }
-  if (smallest && smallest.size <= MAX_DOC) {
-    return { buf: await download(smallest.url), asDoc: true }
-  }
-  const err = new Error(`TOO_HEAVY:${smallest ? mb(smallest.size) : '?'}`)
-  err.url = smallest?.url || item.urls[0]
-  throw err
+  throw lastErr || new Error('sin enlaces')
 }
 
 function buildCaption(info) {
@@ -178,6 +178,14 @@ function buildCaption(info) {
 }
 
 async function sendOne(sock, msg, item, got, caption, i) {
+  if (got.file) {
+    if (item.type === 'gif' && got.size <= MAX_SEND) {
+      try {
+        return await sock.sendMessage(msg.chat, { video: { url: got.file }, mimetype: 'video/mp4', gifPlayback: true, ...(caption ? { caption } : {}) }, { quoted: msg })
+      } finally { try { fs.rmSync(got.file, { force: true }) } catch {} }
+    }
+    return sendVideoFile(sock, msg, got.file, { caption, fileName: `x-${Date.now()}-${i + 1}.mp4` })
+  }
   if (got.asDoc) {
     const isVid = item.type !== 'image'
     return sock.sendMessage(msg.chat, {
@@ -234,13 +242,13 @@ export default {
       if (!info || !info.media.length) {
         // Último recurso: yt-dlp (solo video)
         try {
-          const buf = await fromYtDlp(link)
+          const r = await ytdlpToFile(link, { maxSec: MAX_VIDEO_SEC, tag: 'x' })
           const cap = info ? buildCaption(info) : `🎬 X/Twitter (yt-dlp)\n${link}`
-          const got = { buf, asDoc: buf.length > MAX_SEND }
-          await sendOne(sock, msg, { type: 'video' }, got, cap, 0)
+          await sendVideoFile(sock, msg, r.file, { caption: cap, fileName: 'x.mp4' })
           return
         } catch (e) {
           console.error('[x] yt-dlp', e?.message || e)
+          if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) return msg.reply(friendlyError(e, { link }))
         }
         if (info) return msg.reply(`《✧》 Ese post no tiene *videos ni imágenes* para descargar.\n${info.link}`)
         return msg.reply(`《✧》 No pude obtener el post. Puede ser *privado*, estar *eliminado* o tener restricción de edad.\n${link}${lastErr ? `\n> ${lastErr}` : ''}`)
@@ -259,7 +267,9 @@ export default {
           console.error('[x] media', i, e?.message || e)
           const m = String(e?.message || e)
           if (m.startsWith('TOO_HEAVY:')) {
-            failed.push(`《✧》 El archivo ${i + 1} pesa ~${m.split(':')[1]} MB y no cabe en WhatsApp.\n${e.url || info.link}`)
+            failed.push(`《✧》 El archivo ${i + 1} pesa ~${m.split(':')[1]} MB y pasa del límite de 500 MB.\n${e.url || info.link}`)
+          } else if (m.startsWith('NO_SPACE:')) {
+            failed.push(friendlyError(e))
           } else {
             failed.push(`《✧》 No pude enviar el archivo ${i + 1}.`)
           }
