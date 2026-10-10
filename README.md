@@ -1,7 +1,5 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
-Version **1.1.47** — `$ytvideo <texto>` muestra 10 resultados con miniatura. Responde el número para descargarlo (tope de 20 min). Con enlace descarga directo.
-
 Version **1.1.45** — `$google` manda la miniatura en la tarjeta del resultado (YouTube, TikTok o Wikipedia), en la lista y al responder con el número. Si la portada viene en WEBP y no hay sharp ni ffmpeg, igual la convierte a JPEG. Si no hay foto, queda el texto.
 
 Version **1.1.44** — `$cum`, `$anal`, `$fuck`, `$bj` y el resto de interacciones NSFW vuelven a mandar un gif si Alyacore responde HTTP 500.

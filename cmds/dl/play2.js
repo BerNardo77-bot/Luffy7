@@ -132,7 +132,7 @@ export default {
   category: 'downloader',
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[ytvideo] build 1.1.47 texto muestra 10, HQ ≤1080p H.264, ≤500 MB, doc >64 MB')
+    console.error('[ytvideo] build 1.1.46 HQ ≤1080p H.264, ≤500 MB, doc >64 MB')
     try {
       if (!args[0]) {
         return msg.reply('《✧》 Por favor, menciona el nombre o URL del video que deseas descargar.')
@@ -141,12 +141,6 @@ export default {
       const videoMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/|v\/))([a-zA-Z0-9_-]{11})/)
 
       let videoInfo = null
-      // Con texto, $ytvideo muestra 10 resultados como $ytsearch; el número descarga.
-      if (!videoMatch) {
-        const { default: ytsearch } = await import('../search/yt.js')
-        return await ytsearch.run({ msg, sock, args, usedPrefix: usedPrefix || "$" })
-      }
-
       if (!videoMatch) {
         let list = await searchYoutube(text)
         if (!list.length) {
