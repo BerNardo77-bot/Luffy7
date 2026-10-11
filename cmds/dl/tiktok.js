@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
 import { MAX_VIDEO_MIN, MAX_VIDEO_SEC } from '../../lib/limits.js'
 import { ytdlpToFile, urlToFile, sendVideoFile, friendlyError, isNoCredit, NO_CREDIT_MSG } from '../../lib/mediadl.js'
-const MAX_DURATION_SEC = MAX_VIDEO_SEC // MAX_VIDEO_MIN compartido (60 min por defecto)
+const MAX_DURATION_SEC = MAX_VIDEO_SEC // MAX_VIDEO_MIN compartido (120 min por defecto)
 const MAX_SEND = 64 * 1024 * 1024
 const FFMPEG_TIMEOUT_MS = 240000
 const TMP_DIR = path.join(process.cwd(), 'tmp-dl')
@@ -64,7 +64,7 @@ async function probeDuration(filePath) {
 
 // Mejor calidad ≤1080p, a disco, tope 500 MB. Sin reencodear.
 async function ytDlpTiktok(videoUrl) {
-  return ytdlpToFile(videoUrl, { heights: [1080, 720, 480], maxSec: MAX_DURATION_SEC, tag: 'tt' })
+  return ytdlpToFile(videoUrl, { heights: [1080, 720, 480, 360], maxSec: MAX_DURATION_SEC, tag: 'tt' })
 }
 
 function tooLongReply(sec, link, P = '#') {
