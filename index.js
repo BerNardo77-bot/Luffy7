@@ -331,8 +331,8 @@ export async function startBot() {
 }
 
 // Un error suelto (por ejemplo en connection.update) no debe tumbar el bot en Node 24
-process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e))
-process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.stack || e))
+process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e));
+process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.stack || e));
 
 (async () => {
   await initDB();
