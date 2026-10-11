@@ -20,6 +20,7 @@ const FALLBACK_KEY = 'LUFFY-FIX67'
 // Igual que ytsearch: hasta 10. La API a veces devuelve menos.
 const MAX_RESULTADOS = 10
 const PAUSA_MS = 1200
+let tikwmPausa = 0 // tikwm bloqueado (403/429): no se reintenta en 10 min
 const TT_SITE = 'tiktok'
 const MAX_THUMB = 2 * 1024 * 1024
 const STOP = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'y', 'o', 'en', 'con', 'por', 'para', 'que', 'the', 'of'])
@@ -85,7 +86,7 @@ async function buscarUna(base, key, query) {
   const list = json?.data || json?.result || []
   if (!json?.status || !Array.isArray(list)) {
     const sinSaldo = res.status === 429 || Number(json?.code) === 429 || /saldo/i.test(String(json?.message || ''))
-    return { list: [], error: sinSaldo ? 'La API de alyacore se quedó sin saldo (429): hace falta una key nueva en settings.js. Mientras, manda el enlace con #tiktok.' : (json?.message || 'Sin resultados') }
+    return { list: [], error: sinSaldo ? 'alyacore sin saldo (429)' : (json?.message || 'Sin resultados') }
   }
   return { list, error: list.length ? '' : (json?.message || 'Sin resultados') }
 }
@@ -427,9 +428,14 @@ export default {
           if (pooled.length || /saldo/.test(last)) break
         }
         // b) tikwm región MX (directo; desde el teléfono en México suele pasar Cloudflare)
-        if (!pooled.length) {
-          const lotes = await Promise.all(variantesQ.map((q) => searchTiktokMx(q).catch((e) => { console.error('[ttsearch] tikwm', e?.message || e); last = `${last} · tikwm: ${String(e?.message || e).slice(0, 80)}`; return [] })))
+        if (!pooled.length && Date.now() > tikwmPausa) {
+          let tErr = ''
+          const lotes = await Promise.all(variantesQ.map((q) => searchTiktokMx(q).catch((e) => { tErr = String(e?.message || e).replace(/^directo: /, '').slice(0, 40); return [] })))
           for (const l of lotes) pooled.push(...l)
+          if (!pooled.length && tErr) {
+            last = `${last} · tikwm: ${tErr}`
+            if (/40[13]|429/.test(tErr)) tikwmPausa = Date.now() + 10 * 60 * 1000
+          }
         }
         // c) buscador web (Bing/Brave/DDG site:tiktok.com) + oEmbed/yt-dlp
         if (!pooled.length) {
@@ -437,7 +443,7 @@ export default {
             pooled = await searchTiktokWeb(query, { max: filtro.active ? 20 : 15 })
             console.error(`[ttsearch] web: ${pooled.length}`)
           } catch (e) {
-            last = `${last} · Web: ${String(e?.message || e).slice(0, 120)}`
+            last = `${last} · web: ${String(e?.message || e).slice(0, 120)}`
           }
         }
       }
