@@ -6,6 +6,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { prefijoActual } from '../../lib/prefijo.js';
+import { downloadTiktok } from '../../lib/tt-dl.js'
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -79,7 +80,7 @@ export default {
   category: 'downloader',
   run: async ({ msg, sock, args, command, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[tiktok] build 1.1.46 yt-dlp ≤1080p, doc >64 MB')
+    console.error('[tiktok] build 1.1.51 yt-dlp → tikwm → alyacore, tope 6 min')
 
     if (!args.length) {
       return msg.reply(`✿ Ingresa un término o enlace de TikTok.`)
@@ -90,19 +91,7 @@ export default {
 
     if (urls.length) {
       const url = urls[0]
-      if (!isMp3) {
-        try {
-          await msg.reply('《✧》 Bajando TikTok en la mejor calidad (yt-dlp)…')
-          const got = await ytDlpTiktok(url)
-          await sendVideoFile(sock, msg, got.file, { caption: `🎬 TikTok${got.height ? ' ' + got.height + 'p' : ''}${got.title ? '\n' + got.title.slice(0, 200) : ''}`, fileName: 'tiktok.mp4' })
-          return
-        } catch (e) {
-          console.error('[tiktok] yt-dlp', e?.message || e)
-          if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) {
-            return msg.reply(friendlyError(e, { maxMin: MAX_VIDEO_MIN, link: url }))
-          }
-        }
-      }
+      if (!isMp3) return downloadTiktok({ msg, sock, url })
       try {
         let data = null
         let last = 'sin data'

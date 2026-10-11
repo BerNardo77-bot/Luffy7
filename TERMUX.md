@@ -261,3 +261,10 @@ No uses curl a raw.githubusercontent.com (429). Actualiza solo con git pull.
 - Filtros de duración: `$ytsearch Naruto vs Orochimaru +20min`, `-5min`, `+1h`, `largo`. También en `$ttsearch`.
 - Necesitas espacio libre: ~2 veces lo que pese el video (un video de 500 MB pide ~1 GB libre). Los temporales van a `~/Luffy7/tmp` y se borran al enviar.
 - Mantén yt-dlp al día: `pkg upgrade yt-dlp` (o `pip install -U yt-dlp` si lo instalaste con pip).
+
+## TikTok que no baja (v1.1.51)
+
+- `$tiktok <enlace>` prueba: yt-dlp → tikwm → alyacore, con tope total de 6 min.
+- Si falla, el bot dice el motivo real (por ejemplo: video *en revisión*, *privado* o *eliminado*). Esos no se pueden bajar con nada.
+- yt-dlp avisa "no impersonate target": es normal. `pip install curl_cffi` casi nunca compila en Termux (no hay versión para Android); no hace falta, tikwm sirve de respaldo.
+- Mantén yt-dlp al día: `pkg upgrade yt-dlp`.
