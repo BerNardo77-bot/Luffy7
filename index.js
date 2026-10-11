@@ -3,6 +3,7 @@ import "#db";
 import handler from '#handler';
 import events from '#events';
 import makeWASocket, { Browsers, makeCacheableSignalKeyStore, useMultiFileAuthState, fetchLatestBaileysVersion, jidDecode, DisconnectReason } from 'baileys';
+import { waVersion } from './lib/wa-version.js';
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 import chalk from "chalk";
@@ -192,7 +193,7 @@ export async function startBot() {
   isRestarting = true;
   bootTime = Date.now();
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_OWNER);
-  const { version } = await fetchLatestBaileysVersion();
+  const version = await waVersion();
   console.info = () => {};
   console.debug = () => {};
   const sock = makeWASocket({
@@ -301,6 +302,8 @@ export async function startBot() {
         return;
       }
       reconexion++;
+      // 408 (sin red / versión vieja) no es sesión dañada: no borrar la sesión, solo esperar y reintentar
+      if (reason === DisconnectReason.timedOut && reconexion > retriesLimit) reconexion = retriesLimit;
       if (reconexion > retriesLimit) {
         log.error(`Demasiados reintentos (${retriesLimit}) — sesión posiblemente corrupta, limpiando...`);
         botReady = false;
