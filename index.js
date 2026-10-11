@@ -119,6 +119,19 @@ function clearSession() {
 }
 
 let opcion;
+// Sesión a medias: creds.json existe pero WhatsApp nunca confirmó el vínculo (registered=false).
+// Antes el bot no pedía código ni QR y se quedaba en "Tiempo de conexión agotado" para siempre.
+try {
+  const cp = path.join(SESSION_OWNER, 'creds.json')
+  if (fs.existsSync(cp)) {
+    const c = JSON.parse(fs.readFileSync(cp, 'utf8'))
+    if (!c?.registered && !c?.me?.id) {
+      console.log(chalk.yellow('[ ✿ ] La sesión guardada quedó a medias (sin vincular). Se borra para vincular de nuevo.'))
+      fs.rmSync(SESSION_OWNER, { recursive: true, force: true })
+      fs.mkdirSync(SESSION_OWNER, { recursive: true })
+    }
+  }
+} catch (e) { console.log(chalk.yellow('[ ✿ ] No pude leer creds.json:'), e?.message || e) }
 if (isCloud && !fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
   if (!cloudPhone) {
     console.error('Falta WHATSAPP_NUMBER (codigo pais + numero, sin +). Ejemplo: 5215512345678')
@@ -196,8 +209,12 @@ export async function startBot() {
   const version = await waVersion();
   console.info = () => {};
   console.debug = () => {};
+  // Cerrar el socket anterior antes de abrir otro (evita dos conexiones peleando)
+  try { global.sock?.ev?.removeAllListeners?.(); global.sock?.end?.(undefined) } catch {}
   const sock = makeWASocket({
     version,
+    connectTimeoutMs: 60_000,
+    defaultQueryTimeoutMs: undefined,
     logger: pino({ level: 'silent' }),
     browser: Browsers.macOS('Chrome'),
     printQRInTerminal: false,
@@ -266,7 +283,7 @@ export async function startBot() {
   sock.ev.on("connection.update", async (update) => {
     const { qr, connection, lastDisconnect, isNewLogin, receivedPendingNotifications } = update;
     if (qr != 0 && qr != undefined || methodCodeQR) {
-      if (opcion == '1' || methodCodeQR) {
+      if (opcion == '1' || methodCodeQR || (!opcion && !state.creds.registered)) {
         console.log(chalk.green.bold("[ ✿ ] Escanea este código QR"));
         qrcode.generate(qr, { small: true });
       }
@@ -323,7 +340,9 @@ export async function startBot() {
         [DisconnectReason.timedOut]: "Tiempo de conexión agotado, intentando reconectarse...",
         [DisconnectReason.badSession]: "Sesión inválida, limpiando y reconectando...",
       };
-      log.warn(reasonMessages[reason] || `Desconexión (${reason}), reconectando en ${delay / 1000}s...`);
+      const err = lastDisconnect?.error
+      const det = [err?.message, err?.data && JSON.stringify(err.data).slice(0, 80)].filter(Boolean).join(' · ').replace(/\s+/g, ' ').slice(0, 160)
+      log.warn(`${reasonMessages[reason] || `Desconexión (${reason}), reconectando en ${delay / 1000}s...`} [${reason}${det ? ': ' + det : ''}${state.creds.registered ? '' : ' · sesión sin vincular'}]`);
       isRestarting = false;
       setTimeout(startBot, delay);
     }
