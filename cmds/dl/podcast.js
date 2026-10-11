@@ -1,5 +1,5 @@
 // $podcast / $pod / $antennapod: búsqueda (iTunes MX), feed RSS, enlace de AntennaPod o enlace directo.
-// Portado de AndrewWife v1.1.63: axios para feeds (evita "Premature close"), búsqueda de episodios. Sin proxy (teléfono en MX).
+// Portado de AndrewWife v1.1.64: axios para feeds (evita "Premature close"), búsqueda de episodios, 10 tarjetas con portada. Sin proxy (teléfono en MX).
 import fs from 'fs'
 import axios from 'axios'
 import { prefijoActual } from '../../lib/prefijo.js'
@@ -61,6 +61,7 @@ export function parseFeed(xml) {
       date: tag(it, 'pubDate'),
       duration: durText(tag(it, 'itunes:duration')),
       thumb: attr(it, 'itunes:image', 'href') || art,
+      desc: (tag(it, 'itunes:summary') || tag(it, 'description')).replace(/<[^>]+>/g, ' ').slice(0, 1500),
       show
     })
   }
@@ -109,14 +110,64 @@ export const qWords = (q) => normTxt(q).replace(/#/g, '').split(' ').filter((w) 
 const fracIn = (text, words) => { const t = ' ' + normTxt(text).replace(/#/g, ' ') + ' '; return words.length ? words.filter((w) => t.includes(' ' + w + ' ') || t.includes(w)).length / words.length : 0 }
 
 // Episodios cuyo título (o título + programa) trae las palabras; todos los del feed, mejores primero
-export function matchEpisodes(items, q, max = MAX_EP) {
+// Orden por niveles (todos los episodios del feed): 1) frase exacta en el título,
+// 2) todas las palabras en título(+programa), 3) parte de las palabras en el título,
+// 4) palabras en la descripción. Mejores primero; los más nuevos desempatan.
+export function rankEpisodes(items, q, max = MAX_EP, minTier = 1) {
   const words = qWords(q)
   if (!words.length) return []
-  const scored = items.map((it, i) => ({ it, i, s: fracIn(it.title, words), s2: fracIn(`${it.title} ${it.show}`, words) }))
-    .filter((x) => x.s2 >= 1 || x.s >= 0.6)
-  scored.sort((a, b) => b.s2 - a.s2 || b.s - a.s || a.i - b.i)
+  const phrase = normTxt(q).replace(/#/g, ' ').replace(/\s+/g, ' ').trim()
+  const scored = []
+  items.forEach((it, i) => {
+    const t = normTxt(it.title).replace(/#/g, ' ').replace(/\s+/g, ' ')
+    const sT = fracIn(it.title, words)
+    const sTS = fracIn(`${it.title} ${it.show}`, words)
+    const sD = fracIn(`${it.title} ${it.show} ${it.desc || ''}`, words)
+    let tier = 0
+    if (phrase && t.includes(phrase)) tier = 5
+    else if (sTS >= 1) tier = 4
+    else if (sT >= 0.5) tier = 3
+    else if (sD >= 1) tier = 2
+    else if (sD >= 0.6 && sT > 0) tier = 1
+    if (tier && tier >= minTier) scored.push({ it, i, tier, s: sT + sD })
+  })
+  scored.sort((a, b) => b.tier - a.tier || b.s - a.s || a.i - b.i)
   return scored.slice(0, max).map((x) => x.it)
 }
+export const matchEpisodes = rankEpisodes
+
+const epKey = (it) => String(it.url || '').split('?')[0] || normTxt(it.title)
+export function dedupeEps(list) {
+  const seen = new Set()
+  return list.filter((it) => { const k = epKey(it); const k2 = normTxt(`${it.show} ${it.title}`); if (seen.has(k) || seen.has(k2)) return false; seen.add(k); seen.add(k2); return true })
+}
+
+// Hasta 10, en este orden: 1) coincidencias en títulos del programa, 2) sus episodios más
+// nuevos, 3) otras coincidencias (descripción, y episodios de iTunes de otros programas). Sin duplicados.
+export function fillEpisodes({ feed, q, itunesEps = [] }) {
+  const items = feed?.items || []
+  const titulo = rankEpisodes(items, q, MAX_EP, 3)
+  const otros = rankEpisodes(items, q, MAX_EP, 1)
+  return dedupeEps([...titulo, ...items.slice(0, MAX_EP), ...otros, ...itunesEps]).slice(0, MAX_EP)
+}
+async function buscarEpisodios({ feed, q, itunesQs }) {
+  const items = feed?.items || []
+  // iTunes solo si el feed no llena los 10
+  const itunesEps = []
+  if (dedupeEps([...rankEpisodes(items, q), ...items.slice(0, MAX_EP)]).length < MAX_EP || !rankEpisodes(items, q).length) {
+    for (const iq of itunesQs) {
+      try {
+        const eps = await itunesEpisodes(iq, 50)
+        itunesEps.push(...rankEpisodes(eps, iq, 50), ...eps.slice(0, MAX_EP))
+      } catch (e) { console.error('[podcast] episodios', e?.message || e) }
+      if (itunesEps.length >= MAX_EP) break
+    }
+  }
+  // Sin ninguna coincidencia en el feed, no rellenar con sus nuevos (la búsqueda no era de este programa)
+  if (feed && !rankEpisodes(items, q).length) return dedupeEps([...rankEpisodes(itunesEps, q, 50), ...itunesEps]).slice(0, MAX_EP)
+  return fillEpisodes({ feed, q, itunesEps })
+}
+
 export const showScore = (name, q) => fracIn(name, qWords(q))
 
 async function leerFeed(feedUrl) {
@@ -125,17 +176,33 @@ async function leerFeed(feedUrl) {
   return parseFeed(text)
 }
 
+const PAUSA_MS = 1200
+const esperarMs = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Un mensaje por resultado: miniatura (itunes:image del episodio o portada del programa) + número,
+// título, programa, fecha, duración, tamaño. Pausa entre envíos. Al final, el pie.
 async function enviarLista({ msg, sock, titulo, items, art }) {
   items = items.slice(0, MAX_EP)
+  if (!items.length) return
   savePick(msg.chat, { sender: msg.sender, site: SITE, items, msg, fromMe: msg.fromMe })
-  const img = art || items[0]?.thumb
-  const pic = img ? await bajarImagen(img).catch(() => null) : null
-  const lista = items.map((it, i) => `*${i + 1}.* ${it.title.slice(0, 120)}\n> ${[it.show && !titulo.includes(it.show) ? it.show.slice(0, 40) : '', fecha(it.date), it.duration, it.length ? mb(it.length) + ' MB' : ''].filter(Boolean).join(' · ')}`).join('\n\n')
-  const texto = `🎙️ ${titulo}\n\n${lista}\n\nResponde con el número (1-${items.length}) para descargar · vale 5 min`
-  try {
-    if (pic) return await sock.sendMessage(msg.chat, { image: pic.buffer, mimetype: pic.mimetype, caption: texto.slice(0, 3800) }, { quoted: msg })
-  } catch (e) { console.error('[podcast] portada', e?.message || e) }
-  return msg.reply(texto)
+  await msg.reply(`🎙️ ${titulo}`).catch(() => {})
+  const cache = new Map()
+  for (let i = 0; i < items.length; i++) {
+    await esperarMs(PAUSA_MS)
+    const it = items[i]
+    const meta = [fecha(it.date), it.duration, it.length ? mb(it.length) + ' MB' : ''].filter(Boolean).join(' · ')
+    const caption = `*${i + 1}.* ${it.title.slice(0, 160)}${it.show ? `\n🎙️ ${it.show.slice(0, 60)}` : ''}${meta ? `\n${meta}` : ''}`
+    const src = it.thumb || art
+    if (src && !cache.has(src)) cache.set(src, await bajarImagen(src).catch(() => null))
+    const pic = src ? cache.get(src) : null
+    try {
+      if (pic) { await sock.sendMessage(msg.chat, { image: pic.buffer, mimetype: pic.mimetype, caption }, { quoted: msg }); continue }
+    } catch (e) { console.error('[podcast] miniatura', e?.message || e) }
+    await sock.sendMessage(msg.chat, { text: caption }, { quoted: msg }).catch(() => msg.reply(caption).catch(() => {}))
+  }
+  await esperarMs(PAUSA_MS)
+  const pie = `✎ Responde con el número (1-${items.length}) para descargar · vale 5 min`
+  await sock.sendMessage(msg.chat, { text: pie }, { quoted: msg }).catch(() => msg.reply(pie).catch(() => {}))
 }
 
 const isMediaUrl = (u) => /\.(mp3|m4a|aac|ogg|opus|wav|mp4|m4v|mov|webm)(\?|$)/i.test(u)
@@ -150,9 +217,9 @@ async function listarEpisodios({ msg, sock, feedUrl, filtro = '' }) {
   }
   if (!feed.items.length) return msg.reply(`《✧》 *${feed.show}* no tiene episodios para descargar en su feed.`)
   if (filtro) {
-    const hits = matchEpisodes(feed.items, filtro)
+    const hits = await buscarEpisodios({ feed, q: filtro, itunesQs: [`${filtro} ${feed.show}`, filtro] })
     if (!hits.length) return false
-    return enviarLista({ msg, sock, titulo: `*${feed.show}* — ${hits.length} episodio${hits.length === 1 ? '' : 's'} con “${filtro}” (de ${feed.items.length})`, items: hits, art: feed.art })
+    return enviarLista({ msg, sock, titulo: `*${feed.show}* — ${hits.length} episodio${hits.length === 1 ? '' : 's'} para “${filtro}” (busqué en sus ${feed.items.length} episodios${hits.some((h) => h.show !== feed.show) ? ' y en otros podcasts' : ''})`, items: hits, art: feed.art })
   }
   return enviarLista({ msg, sock, titulo: `*${feed.show}* — ${Math.min(MAX_EP, feed.items.length)} episodios más nuevos`, items: feed.items, art: feed.art })
 }
@@ -161,9 +228,9 @@ async function listarEpisodios({ msg, sock, feedUrl, filtro = '' }) {
 async function porEpisodio({ msg, sock, q }) {
   let eps = []
   try { eps = await itunesEpisodes(q) } catch (e) { console.error('[podcast] episodios', e?.message || e) }
-  const hits = matchEpisodes(eps, q)
+  const hits = await buscarEpisodios({ feed: null, q, itunesQs: [q] })
   if (!hits.length) return false
-  await enviarLista({ msg, sock, titulo: `Episodios para “${q}”`, items: hits })
+  await enviarLista({ msg, sock, titulo: `${hits.length} episodios para “${q}”`, items: hits })
   return true
 }
 
@@ -273,8 +340,8 @@ export default {
       if (top) {
         try {
           const feed = await leerFeed(top.feedUrl)
-          const hits = matchEpisodes(feed.items, q)
-          if (hits.length) return enviarLista({ msg, sock, titulo: `*${feed.show}* — episodios con “${q}”`, items: hits, art: feed.art })
+          const hits = await buscarEpisodios({ feed, q, itunesQs: [q] })
+          if (hits.length) return enviarLista({ msg, sock, titulo: `${hits.length} episodios para “${q}” (primero de *${feed.show}*)`, items: hits, art: feed.art })
         } catch (e) { console.error('[podcast] feed', e?.message || e) }
       }
       if (await porEpisodio({ msg, sock, q })) return
