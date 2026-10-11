@@ -7,7 +7,7 @@ import {
   isNoCredit, NO_CREDIT_MSG, mb, MAX_FILE_BYTES
 } from '../../lib/mediadl.js';
 
-// Tope de duración compartido (MAX_VIDEO_MIN, 60 min por defecto). Lo usan #ytvideo y #ytsearch.
+// Tope de duración compartido (MAX_VIDEO_MIN, 120 min por defecto). Lo usan #ytvideo y #ytsearch.
 export const MAX_DURATION_SEC = MAX_VIDEO_SEC
 const FALLBACK_KEY = 'LUFFY-FIX67'
 const MAX_DOWNLOAD_BYTES = MAX_FILE_BYTES
