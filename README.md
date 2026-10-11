@@ -1,5 +1,7 @@
 # Luffy7 — Monkey D. Luffy Bot MD
 
+Version **1.1.48** — `$x` en el respaldo con yt-dlp ya baja la mejor calidad hasta 500 MB, igual que AndrewWife (antes se quedaba en menos de 64 MB).
+
 Version **1.1.45** — `$google` manda la miniatura en la tarjeta del resultado (YouTube, TikTok o Wikipedia), en la lista y al responder con el número. Si la portada viene en WEBP y no hay sharp ni ffmpeg, igual la convierte a JPEG. Si no hay foto, queda el texto.
 
 Version **1.1.44** — `$cum`, `$anal`, `$fuck`, `$bj` y el resto de interacciones NSFW vuelven a mandar un gif si Alyacore responde HTTP 500.

@@ -9,6 +9,7 @@ import { MAX_VIDEO_SEC } from '../../lib/limits.js'
 const execFileAsync = promisify(execFile)
 const MAX_SEND = 64 * 1024 * 1024 // tope seguro video/imagen en WhatsApp
 const MAX_DOC = MAX_FILE_BYTES // más de MAX_SEND y hasta 500 MB → documento
+const DOC_MB = Math.round(MAX_DOC / 1024 / 1024)
 const MAX_MEDIA = 10
 const TMP_DIR = path.join(process.cwd(), 'lib', 'system', 'tmp', 'x-dl') // gitignored
 // UA sin 'Mozilla': api.vxtwitter.com (Cloudflare) da 403 a UAs tipo navegador.
@@ -116,11 +117,13 @@ async function fromYtDlp(link) {
   if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
   const base = `x-${Date.now()}`
   await execFileAsync('yt-dlp', [
-    '-f', 'best[ext=mp4][filesize<64M]/best[ext=mp4]/best',
-    '--no-playlist', '--max-filesize', '100M',
+    // Igual que AndrewWife: la mejor calidad que quepa en el tope de documento (500 MB)
+    '-f', [`best[ext=mp4][filesize<${DOC_MB}M]`, `best[ext=mp4][filesize_approx<${DOC_MB}M]`,
+      `best[filesize<${DOC_MB}M]`, `best[filesize_approx<${DOC_MB}M]`, 'best[ext=mp4]', 'best'].join('/'),
+    '--no-playlist', '--max-filesize', `${DOC_MB}M`,
     '-o', path.join(TMP_DIR, base + '.%(ext)s'),
     link
-  ], { timeout: 180000, maxBuffer: 20 * 1024 * 1024 })
+  ], { timeout: 600000, maxBuffer: 20 * 1024 * 1024 })
   const hit = fs.readdirSync(TMP_DIR).find(f => f.startsWith(base))
   if (!hit) throw new Error('yt-dlp no generó archivo')
   const full = path.join(TMP_DIR, hit)
