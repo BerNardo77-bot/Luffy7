@@ -10,13 +10,16 @@ import { savePick, readPick, clearPick, bareNumber, queryWords, scoreTitle } fro
 import tiktok from '../dl/tiktok.js'
 import { parseDurationFilter, filterLabel, passes } from '../../lib/dur-filter.js'
 import { fmtClock } from '../../lib/mediadl.js'
+import { searchTiktokMx } from '../../lib/tt-search-mx.js'
+import { searchTiktokWeb } from '../../lib/tt-web-search.js'
+import { parseUserQuery, listUserVideos, rankUserVideos } from '../../lib/tt-user.js'
 
 const execFileAsync = promisify(execFile)
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 // Igual que ytsearch: hasta 10. La API a veces devuelve menos.
 const MAX_RESULTADOS = 10
-const PAUSA_MS = 700
+const PAUSA_MS = 1200
 const TT_SITE = 'tiktok'
 const MAX_THUMB = 2 * 1024 * 1024
 const STOP = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'y', 'o', 'en', 'con', 'por', 'para', 'que', 'the', 'of'])
@@ -382,7 +385,7 @@ export default {
   category: 'search',
   run: async ({ msg, sock, args, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
-    console.error('[ttsearch] build 1.1.40 preciso y numero', P)
+    console.error('[ttsearch] build 1.1.49 alyacore → tikwm MX → web + @usuario', P)
     const filtro = parseDurationFilter(args.join(' ').trim())
     const query = filtro.query
     if (!query) return msg.reply(`✎ Uso: ${P}ttsearch <texto> [+20min | -5min | +1h | largo]`)
@@ -392,22 +395,54 @@ export default {
     let last = 'Sin resultados'
 
     try {
-      const variantesQ = variantes(query)
       let pooled = []
-      for (const key of apiKeys()) {
-        const lotes = await Promise.all(variantesQ.map((q) => buscarUna(base, key, q).catch((e) => ({
-          list: [],
-          error: e?.message || String(e)
-        }))))
-        pooled = []
-        for (const lote of lotes) {
-          if (lote.error) last = lote.error
-          if (Array.isArray(lote.list)) pooled.push(...lote.list)
+      const porUsuario = parseUserQuery(query)
+      if (porUsuario) {
+        // @usuario [palabras]: lista del creador con yt-dlp (IP de casa en México suele pasar)
+        await msg.reply(`✎ Leyendo los videos de *@${porUsuario.user}*… la primera vez tarda ~1 min.`).catch(() => {})
+        let got
+        try {
+          got = await listUserVideos(porUsuario.user)
+        } catch (e) {
+          return msg.reply(`✎ No pude leer los videos de *@${porUsuario.user}*.\n📌 ${String(e?.message || e).replace(/ desde el servidor/g, '').replace(/ en Northflank/g, '').slice(0, 300)}`)
         }
-        if (pooled.length) break
+        let lista = got.list.filter((v) => passes(segundosDe(v), filtro))
+        const topU = rankUserVideos(lista, porUsuario.words, MAX_RESULTADOS)
+        if (!topU.length) {
+          return msg.reply(`✎ En ${got.list.length} videos de *@${porUsuario.user}* no encontré${porUsuario.words.length ? ` uno que mencione: ${porUsuario.words.join(', ')}` : ' resultados'}${filtro.active ? ` ${filterLabel(filtro)}` : ''}.` +
+            (got.limited ? '\n(TikTok solo dejó leer sus videos más nuevos.)' : ''))
+        }
+        if (got.limited) await msg.reply(`《✧》 TikTok solo dejó leer los ${got.list.length} videos más nuevos de @${porUsuario.user}.`).catch(() => {})
+        pooled = topU
+      } else {
+        const variantesQ = variantes(query)
+        // a) API alyacore (sin saldo por ahora)
+        for (const key of apiKeys()) {
+          const lotes = await Promise.all(variantesQ.map((q) => buscarUna(base, key, q).catch((e) => ({ list: [], error: e?.message || String(e) }))))
+          pooled = []
+          for (const lote of lotes) {
+            if (lote.error) last = lote.error
+            if (Array.isArray(lote.list)) pooled.push(...lote.list)
+          }
+          if (pooled.length || /saldo/.test(last)) break
+        }
+        // b) tikwm región MX (directo; desde el teléfono en México suele pasar Cloudflare)
+        if (!pooled.length) {
+          const lotes = await Promise.all(variantesQ.map((q) => searchTiktokMx(q).catch((e) => { console.error('[ttsearch] tikwm', e?.message || e); last = `${last} · tikwm: ${String(e?.message || e).slice(0, 80)}`; return [] })))
+          for (const l of lotes) pooled.push(...l)
+        }
+        // c) buscador web (Bing/Brave/DDG site:tiktok.com) + oEmbed/yt-dlp
+        if (!pooled.length) {
+          try {
+            pooled = await searchTiktokWeb(query, { max: filtro.active ? 20 : 15 })
+            console.error(`[ttsearch] web: ${pooled.length}`)
+          } catch (e) {
+            last = `${last} · Web: ${String(e?.message || e).slice(0, 120)}`
+          }
+        }
       }
       if (filtro.active) pooled = pooled.filter((v) => passes(segundosDe(v), filtro))
-      const top = ordenarResultados(pooled, query)
+      const top = parseUserQuery(query) ? pooled : ordenarResultados(pooled, query)
       if (!top.length) return msg.reply(`✎ No encontré videos${filtro.active ? ` ${filterLabel(filtro)}` : ''} cuyo título coincida con *${query}*.\n${last}`)
 
       const guardados = rememberResults(msg, top)
@@ -441,6 +476,10 @@ export default {
         } catch (e) {
           console.error(`[ttsearch] resultado ${i + 1} no enviado:`, e?.message || e)
         }
+      }
+      if (guardados) {
+        await esperar(PAUSA_MS)
+        await sock.sendMessage(msg.chat, { text: `Responde con el número (1-${guardados}) para descargar · vale 5 min` }, { quoted: msg }).catch(() => {})
       }
     } catch (e) {
       console.error('[ttsearch]', e)
