@@ -1,10 +1,14 @@
 // $podcast / $pod / $antennapod: búsqueda (iTunes MX), feed RSS, enlace de AntennaPod o enlace directo.
-// Lista los 10 episodios más nuevos; el número 1-10 descarga el archivo original (sin recomprimir).
+// Portado de AndrewWife v1.1.63: axios para feeds (evita "Premature close"), búsqueda de episodios. Sin proxy (teléfono en MX).
 import fs from 'fs'
+import axios from 'axios'
 import { prefijoActual } from '../../lib/prefijo.js'
 import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js'
 import { bajarImagen } from '../../lib/ytMiniatura.js'
 import { urlToFile, rmQuiet, mb, MAX_FILE_BYTES, MAX_VIDEO_SEND } from '../../lib/mediadl.js'
+const withProxyFallback = (fn) => fn(false)
+const axiosOpts = () => ({})
+
 
 const SITE = 'podcast'
 const MAX_EP = 10
@@ -64,40 +68,103 @@ export function parseFeed(xml) {
   return { show, art, items }
 }
 
+// axios (node-fetch a veces corta feeds gzip con "Premature close"); directo → proxy
 async function getText(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/rss+xml, application/xml, text/xml, */*' }, redirect: 'follow', signal: AbortSignal.timeout(25000) })
-  if (!res.ok) throw new Error(`el servidor respondió ${res.status}`)
-  return { text: await res.text(), type: String(res.headers.get('content-type') || '') }
+  return withProxyFallback(async (useProxy) => {
+    const res = await axios.get(url, { ...axiosOpts(useProxy), responseType: 'text', timeout: 25000, maxRedirects: 10, validateStatus: () => true,
+      headers: { 'User-Agent': UA, Accept: 'application/rss+xml, application/xml, text/xml, */*' } })
+    if (res.status >= 400) throw Object.assign(new Error(`el servidor respondió ${res.status}`), { final: res.status === 404 || res.status === 410 })
+    return { text: String(res.data || ''), type: String(res.headers['content-type'] || '') }
+  }, 'feed')
 }
 
+async function itunesJson(params) {
+  const r = await axios.get(`https://itunes.apple.com/search?country=MX&${params}`, { timeout: 20000, validateStatus: () => true })
+  if (r.status >= 400) throw new Error(`iTunes respondió ${r.status}`)
+  return typeof r.data === 'string' ? JSON.parse(r.data) : r.data
+}
 async function itunesSearch(q) {
-  const res = await fetch(`https://itunes.apple.com/search?media=podcast&country=MX&limit=5&term=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(20000) })
-  if (!res.ok) throw new Error(`iTunes respondió ${res.status}`)
-  const j = await res.json()
+  const j = await itunesJson(`media=podcast&limit=5&term=${encodeURIComponent(q)}`)
   return (j.results || []).filter((r) => r.feedUrl)
+}
+// Episodios por nombre en todo iTunes (entity=podcastEpisode)
+export async function itunesEpisodes(q, limit = 25) {
+  const j = await itunesJson(`media=podcast&entity=podcastEpisode&limit=${limit}&term=${encodeURIComponent(q)}`)
+  return (j.results || []).filter((r) => r.episodeUrl).map((r) => ({
+    title: String(r.trackName || 'Episodio'),
+    url: r.episodeUrl,
+    type: r.episodeContentType && r.episodeFileExtension ? `${r.episodeContentType}/${r.episodeFileExtension === 'mp3' ? 'mpeg' : r.episodeFileExtension}` : '',
+    length: 0,
+    date: r.releaseDate || '',
+    duration: r.trackTimeMillis ? durText(String(Math.round(r.trackTimeMillis / 1000))) : '',
+    thumb: r.artworkUrl600 || r.artworkUrl160 || '',
+    show: String(r.collectionName || '')
+  }))
+}
+
+// Sin acentos ni mayúsculas; palabras de 2+ letras (o números)
+export const normTxt = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9#]+/g, ' ').trim()
+const STOP = new Set(['de', 'la', 'el', 'los', 'las', 'y', 'en', 'con', 'del', 'a', 'un', 'una', 'the', 'podcast'])
+export const qWords = (q) => normTxt(q).replace(/#/g, '').split(' ').filter((w) => w && (w.length > 1 || /\d/.test(w)) && !STOP.has(w))
+const fracIn = (text, words) => { const t = ' ' + normTxt(text).replace(/#/g, ' ') + ' '; return words.length ? words.filter((w) => t.includes(' ' + w + ' ') || t.includes(w)).length / words.length : 0 }
+
+// Episodios cuyo título (o título + programa) trae las palabras; todos los del feed, mejores primero
+export function matchEpisodes(items, q, max = MAX_EP) {
+  const words = qWords(q)
+  if (!words.length) return []
+  const scored = items.map((it, i) => ({ it, i, s: fracIn(it.title, words), s2: fracIn(`${it.title} ${it.show}`, words) }))
+    .filter((x) => x.s2 >= 1 || x.s >= 0.6)
+  scored.sort((a, b) => b.s2 - a.s2 || b.s - a.s || a.i - b.i)
+  return scored.slice(0, max).map((x) => x.it)
+}
+export const showScore = (name, q) => fracIn(name, qWords(q))
+
+async function leerFeed(feedUrl) {
+  const { text } = await getText(feedUrl)
+  if (!/<rss|<feed|<channel/i.test(text)) throw new Error('el enlace no es un feed RSS de podcast')
+  return parseFeed(text)
+}
+
+async function enviarLista({ msg, sock, titulo, items, art }) {
+  items = items.slice(0, MAX_EP)
+  savePick(msg.chat, { sender: msg.sender, site: SITE, items, msg, fromMe: msg.fromMe })
+  const img = art || items[0]?.thumb
+  const pic = img ? await bajarImagen(img).catch(() => null) : null
+  const lista = items.map((it, i) => `*${i + 1}.* ${it.title.slice(0, 120)}\n> ${[it.show && !titulo.includes(it.show) ? it.show.slice(0, 40) : '', fecha(it.date), it.duration, it.length ? mb(it.length) + ' MB' : ''].filter(Boolean).join(' · ')}`).join('\n\n')
+  const texto = `🎙️ ${titulo}\n\n${lista}\n\nResponde con el número (1-${items.length}) para descargar · vale 5 min`
+  try {
+    if (pic) return await sock.sendMessage(msg.chat, { image: pic.buffer, mimetype: pic.mimetype, caption: texto.slice(0, 3800) }, { quoted: msg })
+  } catch (e) { console.error('[podcast] portada', e?.message || e) }
+  return msg.reply(texto)
 }
 
 const isMediaUrl = (u) => /\.(mp3|m4a|aac|ogg|opus|wav|mp4|m4v|mov|webm)(\?|$)/i.test(u)
 
-async function listarEpisodios({ msg, sock, feedUrl, P }) {
+// filtro: palabras del episodio (opcional). Sin filtro: los 10 más nuevos.
+async function listarEpisodios({ msg, sock, feedUrl, filtro = '' }) {
   let feed
   try {
-    const { text } = await getText(feedUrl)
-    if (!/<rss|<feed|<channel/i.test(text)) throw new Error('el enlace no es un feed RSS de podcast')
-    feed = parseFeed(text)
+    feed = await leerFeed(feedUrl)
   } catch (e) {
     return msg.reply(`《✧》 No pude leer el feed del podcast: ${e?.message || e}.\n${feedUrl}`)
   }
-  const items = feed.items.slice(0, MAX_EP)
-  if (!items.length) return msg.reply(`《✧》 *${feed.show}* no tiene episodios para descargar en su feed.`)
-  savePick(msg.chat, { sender: msg.sender, site: SITE, items, msg, fromMe: msg.fromMe })
-  const art = feed.art ? await bajarImagen(feed.art).catch(() => null) : null
-  const lista = items.map((it, i) => `*${i + 1}.* ${it.title.slice(0, 120)}\n> ${[fecha(it.date), it.duration, it.length ? mb(it.length) + ' MB' : ''].filter(Boolean).join(' · ')}`).join('\n\n')
-  const texto = `🎙️ *${feed.show}* — ${items.length} episodios más nuevos\n\n${lista}\n\nResponde con el número (1-${items.length}) para descargar · vale 5 min`
-  try {
-    if (art) return await sock.sendMessage(msg.chat, { image: art.buffer, mimetype: art.mimetype, caption: texto.slice(0, 3800) }, { quoted: msg })
-  } catch (e) { console.error('[podcast] portada', e?.message || e) }
-  return msg.reply(texto)
+  if (!feed.items.length) return msg.reply(`《✧》 *${feed.show}* no tiene episodios para descargar en su feed.`)
+  if (filtro) {
+    const hits = matchEpisodes(feed.items, filtro)
+    if (!hits.length) return false
+    return enviarLista({ msg, sock, titulo: `*${feed.show}* — ${hits.length} episodio${hits.length === 1 ? '' : 's'} con “${filtro}” (de ${feed.items.length})`, items: hits, art: feed.art })
+  }
+  return enviarLista({ msg, sock, titulo: `*${feed.show}* — ${Math.min(MAX_EP, feed.items.length)} episodios más nuevos`, items: feed.items, art: feed.art })
+}
+
+// Búsqueda de episodios en iTunes; true si mandó lista
+async function porEpisodio({ msg, sock, q }) {
+  let eps = []
+  try { eps = await itunesEpisodes(q) } catch (e) { console.error('[podcast] episodios', e?.message || e) }
+  const hits = matchEpisodes(eps, q)
+  if (!hits.length) return false
+  await enviarLista({ msg, sock, titulo: `Episodios para “${q}”`, items: hits })
+  return true
 }
 
 async function descargar({ msg, sock, item }) {
@@ -134,6 +201,7 @@ async function descargar({ msg, sock, item }) {
 
 export async function before({ msg, sock }) {
   try {
+    // fromMe permitido (el usuario prueba desde la cuenta del bot). Sin msg.isBot.
     const n = bareNumber(msg)
     if (n == null) return false
     const hit = readPick(msg)
@@ -163,10 +231,12 @@ export default {
       if (!q) {
         return msg.reply(
           `🎙️ *Podcasts*\n` +
-          `• ${P}podcast <nombre> — busca el podcast y muestra sus 10 episodios más nuevos\n` +
-          `• ${P}podcast <enlace RSS o de AntennaPod> — lista los episodios\n` +
-          `• ${P}podcast <enlace .mp3/.mp4> — lo descarga directo\n` +
-          `Luego responde con el número (1-10).`
+          `• ${P}pod <programa> — sus 10 episodios más nuevos\n   Ej: ${P}pod Cracks Oso Trava\n` +
+          `• ${P}pod <programa> | <episodio> — busca en TODOS sus episodios\n   Ej: ${P}pod Cracks Oso Trava | Carlos Slim\n` +
+          `• ${P}pod <palabras del episodio> — lo busca por nombre en todos los podcasts\n   Ej: ${P}pod Carlos Slim Oso Trava\n` +
+          `• ${P}pod <enlace RSS o de AntennaPod> — lista los episodios\n` +
+          `• ${P}pod <enlace .mp3/.mp4> — lo descarga directo\n` +
+          `Luego responde con el número (1-10). Hasta 500 MB, calidad original.`
         )
       }
       const link = (q.match(/https?:\/\/\S+/) || [])[0]
@@ -174,18 +244,42 @@ export default {
         const ap = parseAntennaPod(link)
         if (ap) {
           if (ap.episode) return descargar({ msg, sock, item: { title: ap.title || 'Episodio', url: ap.episode, type: '', length: 0, show: '' } })
-          if (ap.feed) return listarEpisodios({ msg, sock, feedUrl: ap.feed, P })
+          if (ap.feed) return listarEpisodios({ msg, sock, feedUrl: ap.feed })
           return msg.reply('《✧》 Ese enlace de AntennaPod no trae la dirección del feed.')
         }
         if (isMediaUrl(link)) return descargar({ msg, sock, item: { title: decodeURIComponent(link.split('/').pop().split('?')[0]).replace(/\.\w+$/, '') || 'Episodio', url: link, type: '', length: 0, show: '' } })
-        return listarEpisodios({ msg, sock, feedUrl: link, P })
+        return listarEpisodios({ msg, sock, feedUrl: link })
       }
-      let res
-      try { res = await itunesSearch(q) } catch (e) { return msg.reply(`《✧》 No pude buscar el podcast: ${e?.message || e}`) }
-      if (!res.length) return msg.reply(`《✧》 No encontré podcasts para *${q}*. Prueba con otro nombre o manda el enlace RSS.`)
+      // "<podcast> | <episodio>": busca el programa y dentro de TODO su feed
+      const [showQ, epQ] = q.includes('|') ? q.split('|').map((x) => x.trim()) : [q, '']
+      let res = []
+      try { res = await itunesSearch(showQ) } catch (e) { if (!epQ) console.error('[podcast] itunes', e?.message || e) }
+      if (epQ) {
+        if (res[0]) {
+          const r = await listarEpisodios({ msg, sock, feedUrl: res[0].feedUrl, filtro: epQ })
+          if (r !== false) return
+        }
+        if (await porEpisodio({ msg, sock, q: `${epQ} ${showQ}` })) return
+        if (await porEpisodio({ msg, sock, q: epQ })) return
+        return msg.reply(`《✧》 No encontré el episodio *${epQ}*${res[0] ? ` en *${res[0].collectionName}*` : ''}. Prueba con otras palabras del título.`)
+      }
       const top = res[0]
-      if (res.length > 1) await msg.reply(`🔎 Encontré *${top.collectionName}* (${top.artistName}).${res.length > 1 ? `\nOtros: ${res.slice(1, 4).map((r) => r.collectionName).join(' · ')}` : ''}`).catch(() => {})
-      return listarEpisodios({ msg, sock, feedUrl: top.feedUrl, P })
+      // Coincide fuerte con el nombre del programa → sus 10 más nuevos (como antes)
+      if (top && showScore(`${top.collectionName} ${top.artistName}`, q) >= 0.75) {
+        if (res.length > 1) await msg.reply(`🔎 Encontré *${top.collectionName}* (${top.artistName}).\nOtros: ${res.slice(1, 4).map((r) => r.collectionName).join(' · ')}\n✎ ¿Buscas un episodio? ${P}pod ${top.collectionName.slice(0, 30)} | <palabras del episodio>`).catch(() => {})
+        return listarEpisodios({ msg, sock, feedUrl: top.feedUrl })
+      }
+      // Si no: episodios por nombre (feed del mejor programa + iTunes episodios)
+      if (top) {
+        try {
+          const feed = await leerFeed(top.feedUrl)
+          const hits = matchEpisodes(feed.items, q)
+          if (hits.length) return enviarLista({ msg, sock, titulo: `*${feed.show}* — episodios con “${q}”`, items: hits, art: feed.art })
+        } catch (e) { console.error('[podcast] feed', e?.message || e) }
+      }
+      if (await porEpisodio({ msg, sock, q })) return
+      if (top) return listarEpisodios({ msg, sock, feedUrl: top.feedUrl })
+      return msg.reply(`《✧》 No encontré podcasts ni episodios para *${q}*. Prueba con otro nombre o manda el enlace RSS.`)
     } catch (e) {
       console.error('[podcast]', e)
       await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
