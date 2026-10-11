@@ -275,7 +275,10 @@ export async function startBot() {
       bootTime = Date.now();
       reconexion = 0;
       isRestarting = false;
-      const userName = sock.user?.name || (sock.user?.id ? (await db.getSettings(sock.user.id.split(':')[0] + '@s.whatsapp.net').catch(() => null))?.namebot2 : '') || 'Luffy';
+      // db.getSettings es síncrono: no lleva .catch (eso tumbaba el bot al conectar)
+      let botSets = null
+      try { if (sock.user?.id) botSets = await Promise.resolve(db.getSettings(sock.user.id.split(':')[0] + '@s.whatsapp.net')) } catch {}
+      const userName = sock.user?.name || botSets?.namebot2 || 'Luffy';
       log.success(`Conectado a: ${userName}`);
       if (!botReady) {
         botReady = true;
@@ -326,6 +329,10 @@ export async function startBot() {
     }
   });
 }
+
+// Un error suelto (por ejemplo en connection.update) no debe tumbar el bot en Node 24
+process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e))
+process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.stack || e))
 
 (async () => {
   await initDB();
