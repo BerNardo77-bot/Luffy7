@@ -1,5 +1,6 @@
 import db from "#db"
 import makeWASocket, { Browsers, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, DisconnectReason, jidDecode, useMultiFileAuthState } from 'baileys';
+import { waVersion } from '../../lib/wa-version.js';
 import NodeCache from 'node-cache';
 import handler from '#handler';
 import events from '#events';
@@ -38,7 +39,7 @@ export async function startSubBot(
   const senderId = msg?.sender;
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const { version } = await fetchLatestBaileysVersion();
+  const version = await waVersion();
 
   const msgStore = new Map();
   const msgLimit = 500;
