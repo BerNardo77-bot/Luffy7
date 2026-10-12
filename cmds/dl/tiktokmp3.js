@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { resolveTiktokUrl } from '../../lib/tt-url.js'
 import { getBuffer } from '#serialize'
 
 export default {
@@ -11,14 +12,14 @@ export default {
       }
 
       const text = args.join(' ')
-      const tiktokRegex = /(https?:\/\/)?(www\.|vt\.|vm\.)?tiktok\.com\/[^\s]+/i
+      const tiktokRegex = /(https?:\/\/)?([\w-]+\.)*(tiktok\.com|tiktokv\.com|tt\.site)\/[^\s]+/i
       const match = text.match(tiktokRegex)
 
       if (!match) {
         return msg.reply('《✧》 Por favor, ingresa un enlace válido de TikTok.')
       }
 
-      const tiktokUrl = match[0]
+      const tiktokUrl = await resolveTiktokUrl(match[0])
 
       // 🔗 Llamada a la API de TikTok Audio
       const apiUrl = `${api.url}/dl/tiktokmp3?url=${encodeURIComponent(tiktokUrl)}&key=${api.key}`
