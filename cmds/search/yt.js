@@ -5,7 +5,7 @@ import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.j
 import play2, { MAX_DURATION_SEC, parseDurationToSeconds } from '../dl/play2.js';
 import { MAX_VIDEO_MIN } from '../../lib/limits.js';
 import { parseDurationFilter, filterLabel, passes } from '../../lib/dur-filter.js';
-import { ytdlpSearch, fmtClock } from '../../lib/mediadl.js';
+import { ytdlpSearch, fmtClock, parseYtHandle, ytdlpChannel } from '../../lib/mediadl.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 // Cuántos resultados se mandan (cada uno es un mensaje con su miniatura)
@@ -165,8 +165,17 @@ export default {
     const base = apiBase()
     let last = 'Sin resultados'
     let list = null
+    let canal = ''
+    const h = parseYtHandle(query)
+    if (h) {
+      try {
+        const r = await ytdlpChannel(h.handle, h.words, filtro.active ? 60 : 20)
+        if (r.list.length) { list = r.list; canal = r.channel }
+        else last = `el canal @${h.handle} no tiene videos${h.words ? ` con “${h.words}”` : ''}`
+      } catch (e) { last = `no pude abrir el canal @${h.handle}: ${String(e?.stderr || e?.message || e).split('\n').find((l) => /ERROR/.test(l)) || ''}`.slice(0, 160) }
+    }
     // Con filtro de duración se usa yt-dlp (trae duración exacta y más resultados)
-    if (!filtro.active) {
+    if (!list && !filtro.active) {
       for (const key of apiKeys()) {
         try {
           const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
@@ -177,7 +186,10 @@ export default {
             last = (res.status === 429 || json?.code === 429) ? 'alyacore sin saldo (429)' : (json?.message || last)
             continue
           }
-          list = l
+          // fuera canales/listas (sin id de video)
+          const vids = l.filter((v) => /youtu\.be\/|watch\?v=|shorts\//.test(resultUrl(v)))
+          if (!vids.length) { last = 'la API solo devolvió canales/listas'; continue }
+          list = vids
           break
         } catch (e) {
           last = e.message || last
@@ -205,7 +217,7 @@ export default {
       )
       try {
         const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para descargarlo.` : ''
-        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} para *${query}*.${rango}`, edit: status.key })
+        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} ${canal ? `del canal *${canal}*${h?.words ? ` con *${h.words}*` : ''}` : `para *${query}*`}.${rango}`, edit: status.key })
       } catch {}
 
       for (let i = 0; i < top.length; i++) {
