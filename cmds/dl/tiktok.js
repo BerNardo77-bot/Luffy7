@@ -7,6 +7,7 @@ import os from 'os'
 import path from 'path'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { downloadTiktok } from '../../lib/tt-dl.js'
+import { findTiktokUrls, resolveTiktokUrl } from '../../lib/tt-url.js'
 
 const execFileAsync = promisify(execFile)
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -87,10 +88,10 @@ export default {
     }
 
     const isMp3 = args.includes('--mp3')
-    const urls = args.filter(arg => arg.includes("tiktok.com"))
+    const urls = findTiktokUrls(args.join(' '))
 
     if (urls.length) {
-      const url = urls[0]
+      const url = await resolveTiktokUrl(urls[0])
       if (!isMp3) return downloadTiktok({ msg, sock, url })
       try {
         let data = null

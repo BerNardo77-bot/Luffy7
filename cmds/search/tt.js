@@ -1,3 +1,5 @@
+import { findTiktokUrls, resolveTiktokUrl } from '../../lib/tt-url.js'
+import { downloadTiktok } from '../../lib/tt-dl.js'
 import fetch from 'node-fetch'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -390,6 +392,9 @@ export default {
     const filtro = parseDurationFilter(args.join(' ').trim())
     const query = filtro.query
     if (!query) return msg.reply(`✎ Uso: ${P}ttsearch <texto> [+20min | -5min | +1h | largo]`)
+    // Si mandan un enlace (también tt.site / vm.tiktok.com), se descarga directo
+    const ttLink = findTiktokUrls(query)[0]
+    if (ttLink) return downloadTiktok({ msg, sock, url: await resolveTiktokUrl(ttLink) })
 
     const status = await msg.reply(`✎ Buscando en TikTok${filtro.active ? ` videos ${filterLabel(filtro)}` : ''}...`)
     const base = apiBase()
