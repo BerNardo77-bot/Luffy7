@@ -1,3 +1,4 @@
+import { replyDlError } from '../../lib/oversize.js'
 import db from "#db"
 import fetch from 'node-fetch'
 import { execFile } from 'child_process'
@@ -154,7 +155,7 @@ export default {
               await sendVideoFile(sock, msg, got.file, { caption, fileName: 'tiktok.mp4' })
             }
           } catch (e) {
-            if (/^(TOO_BIG|NO_SPACE):/.test(String(e?.message))) return msg.reply(friendlyError(e, { link: tiktokLink || url }))
+            if (/^(TOO_BIG|NO_SPACE):/.test(String(e?.message))) return replyDlError({ msg, sock, e, url: tiktokLink || url, maxSec: MAX_VIDEO_SEC, maxMin: MAX_VIDEO_MIN })
             console.error('[tiktok] send api', e)
             await msg.reply(`《✧》 No pude enviar el video por WhatsApp.\n${tiktokLink || url}`)
           }

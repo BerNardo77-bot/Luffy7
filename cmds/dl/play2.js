@@ -1,3 +1,4 @@
+import { replyDlError } from '../../lib/oversize.js'
 import fetch from 'node-fetch'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
@@ -192,7 +193,7 @@ export default {
         ytErr = e
         console.error('[ytvideo] yt-dlp', e?.message || e)
         if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) {
-          return msg.reply(friendlyError(e, { maxMin: MAX_VIDEO_MIN, link: url }))
+          return replyDlError({ msg, sock, e, url: url, maxSec: MAX_VIDEO_SEC, maxMin: MAX_VIDEO_MIN })
         }
       }
 
@@ -211,7 +212,7 @@ export default {
         const name = (res.data?.title || title || 'video').replace(/[^\w\s.-]/g, '').slice(0, 60) || 'video'
         await sendVideoFile(sock, msg, got.file, { caption: `🎬 *${res.data?.title || title}*\n${mb(got.size)} MB`, fileName: `${name}.mp4` })
       } catch (e) {
-        return msg.reply(friendlyError(e, { maxMin: MAX_VIDEO_MIN, link: url }))
+        return replyDlError({ msg, sock, e, url: url, maxSec: MAX_VIDEO_SEC, maxMin: MAX_VIDEO_MIN })
       }
     } catch (e) {
       console.error('[ytvideo]', e)

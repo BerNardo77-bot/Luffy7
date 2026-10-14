@@ -1,3 +1,4 @@
+import { replyDlError } from '../../lib/oversize.js'
 import fetch from 'node-fetch'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -251,7 +252,7 @@ export default {
           return
         } catch (e) {
           console.error('[x] yt-dlp', e?.message || e)
-          if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) return msg.reply(friendlyError(e, { link }))
+          if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) return replyDlError({ msg, sock, e, url: link, maxSec: MAX_VIDEO_SEC, maxMin: 120 })
         }
         if (info) return msg.reply(`《✧》 Ese post no tiene *videos ni imágenes* para descargar.\n${info.link}`)
         return msg.reply(`《✧》 No pude obtener el post. Puede ser *privado*, estar *eliminado* o tener restricción de edad.\n${link}${lastErr ? `\n> ${lastErr}` : ''}`)
