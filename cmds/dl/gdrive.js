@@ -1,3 +1,5 @@
+import { offerOversize } from '../../lib/oversize.js'
+import { MAX_FILE_BYTES } from '../../lib/mediadl.js'
 import fetch from 'node-fetch'
 import fs from 'fs'
 import os from 'os'
@@ -16,7 +18,7 @@ import { prefijoActual } from '../../lib/prefijo.js';
 // Si el link es una PÁGINA WEB (artículo, guía), extrae el contenido y lo convierte a PDF (lib/webpdf.js).
 // Scribd / Studocu / etc. exigen cuenta o suscripción: solo se avisa, no se descarga ni se convierte.
 
-const MAX_SEND = 90 * 1024 * 1024 // misma regla que #apk
+const MAX_SEND = MAX_FILE_BYTES // 1950 MB como documento; más grande → opciones (lib/oversize.js)
 const TIMEOUT = 30000
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -622,7 +624,8 @@ async function handleDirect(url, { msg, sock, P = '#' }) {
       `❖ Link › ${link}`
     if (meta.size > MAX_SEND) {
       await react(msg, '✔️')
-      return msg.reply(caption + `\n\n✎ Pesa más de 90 MB: no lo subo por WhatsApp (se cuelga).\nAbre el *link* en el navegador para descargarlo.`)
+      await msg.reply(caption)
+      return offerOversize({ msg, sock, size: meta.size, video: false, link, fileName: meta.name || 'archivo.pdf', fetchFile: (max) => downloadDirectToFile(meta.url, max, meta.ua) })
     }
     let dl
     try {
@@ -630,8 +633,8 @@ async function handleDirect(url, { msg, sock, P = '#' }) {
     } catch (e) {
       if (e?.message === 'TOO_BIG') {
         await react(msg, '✔️')
-        return msg.reply(caption.replace(/Tamaño › .*/, 'Tamaño › más de 90 MB') +
-          `\n\n✎ Pesa más de 90 MB: no lo subo por WhatsApp.\nAbre el *link* en el navegador para descargarlo.`)
+        await msg.reply(caption)
+        return offerOversize({ msg, sock, size: 0, video: false, link, fileName: meta.name || 'archivo.pdf', fetchFile: (max) => downloadDirectToFile(meta.url, max, meta.ua) })
       }
       throw e
     }
@@ -713,11 +716,8 @@ export default {
 
       if (meta.size > MAX_SEND) {
         await react(msg, '✔️')
-        return msg.reply(
-          caption +
-            `\n\n✎ Pesa más de 90 MB: no lo subo por WhatsApp (se cuelga).\n` +
-            `Abre el *link* en el navegador para descargarlo.`
-        )
+        await msg.reply(caption)
+        return offerOversize({ msg, sock, size: meta.size, video: /\.(mp4|mkv|mov|webm)$/i.test(meta.name || ''), link: info.link, fileName: meta.name || 'archivo', fetchFile: (max) => downloadToFile(info, meta.url, max) })
       }
 
       let dl
@@ -726,8 +726,8 @@ export default {
       } catch (e) {
         if (e?.message === 'TOO_BIG') {
           await react(msg, '✔️')
-          return msg.reply(caption.replace(/Tamaño › .*/, 'Tamaño › más de 90 MB') +
-            `\n\n✎ Pesa más de 90 MB: no lo subo por WhatsApp.\nAbre el *link* en el navegador para descargarlo.`)
+          await msg.reply(caption)
+          return offerOversize({ msg, sock, size: 0, video: /\.(mp4|mkv|mov|webm)$/i.test(meta.name || ''), link: info.link, fileName: meta.name || 'archivo', fetchFile: (max) => downloadToFile(info, meta.url, max) })
         }
         throw e
       }

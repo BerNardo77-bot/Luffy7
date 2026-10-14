@@ -1,3 +1,4 @@
+import { replyDlError } from '../../lib/oversize.js'
 // $podcast / $pod / $antennapod: búsqueda (iTunes MX), feed RSS, enlace de AntennaPod o enlace directo.
 // Portado de AndrewWife v1.1.64: axios para feeds (evita "Premature close"), búsqueda de episodios, 10 tarjetas con portada. Sin proxy (teléfono en MX).
 import fs from 'fs'
@@ -236,15 +237,13 @@ async function porEpisodio({ msg, sock, q }) {
 
 async function descargar({ msg, sock, item }) {
   await msg.reply(`《✧》 Bajando: *${item.title.slice(0, 120)}*${item.length ? ` (~${mb(item.length)} MB)` : ''}…`)
-  if (item.length > MAX_FILE_BYTES) return msg.reply(`《✧》 Ese episodio pesa ~${mb(item.length)} MB y el límite es ${mb(MAX_FILE_BYTES)} MB.\n${item.url}`)
   const ext = (item.url.match(/\.(mp3|m4a|aac|ogg|opus|wav|mp4|m4v|mov|webm)(\?|$)/i) || [])[1]?.toLowerCase() || (/video/.test(item.type) ? 'mp4' : 'mp3')
   let got
   try {
     got = await urlToFile(item.url, { tag: 'pod', ext, idleMs: 90000 })
   } catch (e) {
     const m = String(e?.message || e)
-    if (m.startsWith('TOO_BIG:')) return msg.reply(`《✧》 Ese episodio pesa más de ${mb(MAX_FILE_BYTES)} MB; no cabe.\n${item.url}`)
-    if (m.startsWith('NO_SPACE:')) return msg.reply(`《✧》 ${m.slice(9).trim()}`)
+    if (/^(TOO_BIG|NO_SPACE):/.test(m)) return replyDlError({ msg, sock, e, url: item.url, direct: true, fileName: `episodio.${ext}`, video: /^(mp4|m4v|mov|webm)$/.test(ext) })
     return msg.reply(`《✧》 No pude bajar el episodio: ${m.slice(0, 150)}.\n${item.url}`)
   }
   const isVideo = /video/.test(item.type) || /^(mp4|m4v|mov|webm)$/.test(ext)

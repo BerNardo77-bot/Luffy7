@@ -1,3 +1,5 @@
+import { replyDlError } from '../../lib/oversize.js'
+import { urlToFile, rmQuiet, mb as mbTxt, MAX_FILE_BYTES } from '../../lib/mediadl.js'
 import fetch from 'node-fetch'
 import { prefijoActual } from '../../lib/prefijo.js';
 
@@ -64,30 +66,21 @@ export default {
 
           await msg.reply(info)
 
-          // WhatsApp aguanta más que Telegram, pero 200+ MB suele fallar/timeout
-          if (mb != null && mb > 90) {
-            await msg.reply(
-              `✎ Pesa *${data.size}*: no lo subo por WhatsApp (se cuelga).\n` +
-                `Abre el *link* de arriba en el navegador para descargarlo.`
-            )
-            return
+          // Se baja a disco y se sube como documento (hasta 1950 MB); más grande → opciones
+          const fileName = `${String(data.name).replace(/[^\w.\- ]+/g, '').trim() || 'app'}.apk`
+          if (mb != null && mb * 1024 * 1024 > MAX_FILE_BYTES) {
+            return replyDlError({ msg, sock, e: new Error(`TOO_BIG:${mb}`), url: String(data.dl), direct: true, fileName, video: false })
           }
-
+          let got = null
           try {
-            await sock.sendMessage(
-              msg.chat,
-              {
-                document: { url: data.dl },
-                fileName: `${String(data.name).replace(/[^\w.\- ]+/g, '')}.apk`,
-                mimetype: 'application/vnd.android.package-archive',
-                caption: typeof global !== 'undefined' && global.dev ? global.dev : 'Luffy7'
-              },
-              { quoted: msg }
-            )
+            if (mb > 64) await msg.reply(`✎ Descargando ${data.size}…`).catch(() => {})
+            got = await urlToFile(String(data.dl), { ext: 'apk', tag: 'apk' })
+            await sock.sendMessage(msg.chat, { document: { url: got.file }, fileName, mimetype: 'application/vnd.android.package-archive', caption: `${data.name} · ${mbTxt(got.size)} MB` }, { quoted: msg })
           } catch (e) {
             console.error('[apk] document', e?.message || e)
+            if (/^(TOO_BIG|NO_SPACE):/.test(String(e?.message))) return replyDlError({ msg, sock, e, url: String(data.dl), direct: true, fileName, video: false })
             await msg.reply('✎ No pude subir el archivo. Usa el link de arriba.')
-          }
+          } finally { if (got) rmQuiet(got.file) }
           return
         } catch (e) {
           last = e.message || last
