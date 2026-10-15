@@ -2,6 +2,8 @@ import fetch from 'node-fetch'
 import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.js'
 import play2 from '../dl/play2.js'
 import tiktok from '../dl/tiktok.js'
+import play from '../dl/play.js'
+import { musicKind, resolveTrack, resolveAlbum, searchQuery } from '../../lib/music-page.js'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
@@ -887,6 +889,17 @@ async function takeNumber({ msg, sock, usedPrefix }) {
     }
     return true
   }
+  const mk = musicKind(item.url)
+  if (mk && (mk.kind === 'track' || mk.kind === 'album')) {
+    clearPick(msg)
+    try {
+      await musicaDesdePagina({ msg, sock, usedPrefix, item, mk })
+    } catch (e) {
+      console.error('[google] musica', e?.message || e)
+      await msg.reply(`《✧》 No pude leer esa página de música: ${String(e?.message || e).slice(0, 120)}\n${item.url}`).catch(() => {})
+    }
+    return true
+  }
   const video = enlaceYouTube(item.url)
   if (!video) {
     const title = String(item.title || 'Ese resultado').replace(/\s+/g, ' ').trim().slice(0, 160)
@@ -909,15 +922,58 @@ async function takeNumber({ msg, sock, usedPrefix }) {
   return true
 }
 
+const ALBUM_SITE = 'musica-album'
+
+// Canción (Apple Music, Spotify, Genius, Deezer, YouTube Music) → busca en YouTube y manda el audio.
+// Álbum → lista numerada (5 min); el número baja esa canción.
+async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
+  if (mk.kind === 'track') {
+    if (mk.svc === 'ytmusic') return play.run({ msg, sock, args: [`https://youtu.be/${mk.id}`], usedPrefix })
+    const t = await resolveTrack(item.url, mk)
+    const q = t ? searchQuery(t) : ''
+    if (!q) return msg.reply(`《✧》 No pude saber qué canción es.\n${item.url}`)
+    await msg.reply(`🎵 *${q}*\nLa busco en YouTube y te mando el audio…`)
+    return play.run({ msg, sock, args: q.split(' '), usedPrefix })
+  }
+  const al = await resolveAlbum(item.url, mk)
+  if (!al?.tracks?.length) return msg.reply(`《✧》 No pude leer las canciones de ese álbum.\n${item.url}`)
+  savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items: al.tracks, msg, fromMe: msg.fromMe })
+  const lista = al.tracks.map((t, i) => `${i + 1}. ${t.title}${t.artist && t.artist !== al.artist ? ` — ${t.artist}` : ''}`).join('\n')
+  const text = `💿 *${al.album || 'Álbum'}*${al.artist ? `\n👤 ${al.artist}` : ''}\n\n${lista}\n\n✎ Responde con un número (vale 5 min) y te mando el audio de esa canción.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
+  await replyConMiniatura(sock, msg, text, { ...item, image: al.image || item.image })
+}
+
+async function takeAlbumNumber({ msg, sock, usedPrefix }) {
+  const n = bareNumber(msg)
+  if (n == null) return false
+  const hit = readPick(msg)
+  if (!hit || hit.site !== ALBUM_SITE) return false
+  if (!Number.isInteger(n) || n < 1 || n > hit.items.length) {
+    await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
+    return true
+  }
+  const t = hit.items[n - 1]
+  const args = t.url ? [t.url] : searchQuery(t).split(' ')
+  await msg.reply(`🎵 *${n}. ${t.title}*\nTe mando el audio…`)
+  try {
+    await play.run({ msg, sock, args, usedPrefix })
+  } catch (e) {
+    console.error('[google] album', e?.message || e)
+    await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
+  }
+  return true
+}
+
 export async function before(ctx) {
   try {
+    if (await takeAlbumNumber(ctx)) return true
     return await takeNumber(ctx)
   } catch (e) {
     console.error('[google] pick', e?.message || e)
     let ours = false
     try {
       const hit = readPick(ctx?.msg)
-      ours = !!(hit && hit.site === GOOGLE_SITE && bareNumber(ctx?.msg) != null)
+      ours = !!(hit && (hit.site === GOOGLE_SITE || hit.site === ALBUM_SITE) && bareNumber(ctx?.msg) != null)
     } catch {}
     if (!ours) return false
     try { await ctx.msg.reply(`《✧》 Error: ${e?.message || e}`) } catch {}
@@ -929,7 +985,7 @@ async function enviarResultados({ msg, sock, q, source, results }) {
   await completarMiniaturas(results)
   const n = results.length
   const guardados = recordar(msg, results)
-  const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para bajar un video de YouTube o TikTok, o leer el resumen de Wikipedia.` : ''
+  const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para bajar un video de YouTube o TikTok, el audio de una canción (Apple Music, Spotify, Genius, Deezer), o leer el resumen de Wikipedia.` : ''
   await msg.reply(`❑ *Búsqueda Web*\n> ✿ ${q}\n\n✎ ${n} resultado${n === 1 ? '' : 's'}. Fuente › ${source}.${rango}`)
   for (let i = 0; i < results.length; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS))
