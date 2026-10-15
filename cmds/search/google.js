@@ -956,7 +956,7 @@ export async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
   savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items: al.tracks.map(t => ({ ...t, album: al.album || '', image: t.image || al.image || '' })), msg, fromMe: msg.fromMe })
   const lines = al.tracks.map((t, i) => `${i + 1}. ${t.title}${t.artist && t.artist !== al.artist ? ` — ${t.artist}` : ''}`)
   const head = `💿 *${al.album || 'Álbum'}*${al.artist ? `\n👤 ${al.artist}` : ''} · ${lines.length} canciones\n\n`
-  const foot = `\n\n✎ Responde con un número del 1 al ${lines.length} (vale 5 min) y te mando el audio de esa canción.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
+  const foot = `\n\n✎ Responde con un número del 1 al ${lines.length} (vale 5 min) y te mando el audio de esa canción, o responde *todas* para bajar el álbum completo.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
   // Partes de ≤60 líneas; la primera va con la portada (caption ≤1000 caracteres)
   const parts = []
   let cur = [], len = head.length
@@ -997,7 +997,7 @@ export async function buscarMusica({ msg, sock, usedPrefix, q, strict = false })
   }
   savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items, msg, fromMe: msg.fromMe })
   const lista = items.map((t, i) => `${i + 1}. ${t.type === 'album' ? '💿' : '🎵'} ${t.title} — ${t.artist}`).join('\n')
-  const caption = `🍎 *Apple Music:* ${q}\n\n${lista}\n\n✎ Responde con un número (vale 5 min): 🎵 te mando el audio, 💿 te muestro las canciones del álbum.`
+  const caption = `🍎 *Apple Music:* ${q}\n\n${lista}\n\n✎ Responde con un número (vale 5 min): 🎵 te mando el audio, 💿 te muestro las canciones del álbum. Responde *todas* para bajar todas las 🎵.`
   const img = items[0]?.image
   if (img) {
     try { await sock.sendMessage(msg.chat, { image: { url: img }, caption: caption.slice(0, 1000) }, { quoted: msg }); return true } catch {}
@@ -1007,11 +1007,54 @@ export async function buscarMusica({ msg, sock, usedPrefix, q, strict = false })
 }
 const normTxt = (s = '') => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 
+const ALL_RE = /^\s*(todas|todo|all|0)\s*[.!]?\s*$/i
+const MAX_ALL = 100
+const albumJobs = new Set()
+
+// "todas" / "todo" / "all" / "0" → baja todas las canciones de la lista (una por una, MP3 con nombre y portada)
+async function bajarTodas({ msg, sock, usedPrefix, hit }) {
+  const key = String(msg.chat)
+  if (albumJobs.has(key)) { await msg.reply('《✧》 Ya estoy bajando un álbum en este chat. Espera a que termine.'); return true }
+  let songs = hit.items.filter(t => !t.albumUrl)
+  if (!songs.length) { await msg.reply('《✧》 Esa lista no tiene canciones (solo álbumes). Elige un álbum por número.'); return true }
+  const total0 = songs.length
+  if (songs.length > MAX_ALL) songs = songs.slice(0, MAX_ALL)
+  albumJobs.add(key)
+  clearPick(msg)
+  const failed = []
+  try {
+    await msg.reply(`《✧》 Bajando el álbum completo: *${songs.length}* canciones${total0 > MAX_ALL ? ` (de ${total0}; máximo ${MAX_ALL})` : ''}. Te las mando una por una…`)
+    const quietMsg = Object.create(msg)
+    quietMsg.reply = async () => null
+    for (let i = 0; i < songs.length; i++) {
+      const t = songs[i]
+      if (i > 0 && i % 5 === 0) await msg.reply(`《✧》 Bajando ${i + 1}/${songs.length}…`).catch(() => {})
+      const result = {}
+      try {
+        const args = t.url ? [t.url] : searchQuery(t).split(' ')
+        await play.run({ msg: quietMsg, sock, args, usedPrefix, meta: { quiet: true, result, ...(t.url ? {} : { title: t.title, artist: t.artist, album: t.album || '', cover: t.image || '' }) } })
+      } catch (e) {
+        console.error('[google] todas', e?.message || e)
+      }
+      if (!result.ok) failed.push(`${i + 1}. ${t.title}`)
+      await new Promise(r => setTimeout(r, 2000))
+    }
+    const ok = songs.length - failed.length
+    await msg.reply(`《✧》 Álbum listo: ${ok}/${songs.length} canciones enviadas.${failed.length ? `\nNo se pudieron bajar:\n${failed.join('\n')}` : ''}`)
+  } finally {
+    albumJobs.delete(key)
+  }
+  return true
+}
+
 export async function takeAlbumNumber({ msg, sock, usedPrefix }) {
-  const n = bareNumber(msg)
+  const txt = String(msg?.body || msg?.text || msg?.message?.conversation || msg?.message?.extendedTextMessage?.text || '')
+  const wantAll = ALL_RE.test(txt)
+  const n = wantAll ? 0 : bareNumber(msg)
   if (n == null) return false
   const hit = readPick(msg)
   if (!hit || hit.site !== ALBUM_SITE) return false
+  if (wantAll || n === 0) return bajarTodas({ msg, sock, usedPrefix, hit })
   if (!Number.isInteger(n) || n < 1 || n > hit.items.length) {
     await msg.reply(`Elige un número del 1 al ${hit.items.length}.`)
     return true
