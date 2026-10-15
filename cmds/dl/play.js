@@ -17,7 +17,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
-import { prepareAudio, fetchCover, makeThumb } from '../../lib/audio-tags.js'
+import { prepareAudio, fetchCover, makeThumb, probeAudio, ytdlpAudio, haveFfmpeg } from '../../lib/audio-tags.js'
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -49,6 +49,14 @@ async function searchYoutube(query) {
       }
     } catch {}
   }
+  // Respaldo sin API: yt-search
+  try {
+    const { default: yts } = await import('yt-search')
+    const id = (String(query).match(/youtu\.be\/([\w-]{11})|[?&]v=([\w-]{11})/) || []).slice(1).find(Boolean)
+    const r = id ? await yts({ videoId: id }) : await yts(String(query))
+    const vids = id ? (r ? [r] : []) : (r?.videos || [])
+    return vids.slice(0, 10).map(v => ({ title: v.title, author: { name: v.author?.name || 'Desconocido' }, timestamp: v.timestamp || '', views: v.views || 0, url: v.url, image: v.thumbnail || v.image || '', videoId: v.videoId }))
+  } catch {}
   return []
 }
 
@@ -192,28 +200,29 @@ export default {
 
       const key = getApiKey()
       const got = await obtenerAudio(url, title, key)
-      if (got.error || !got.dl) {
-        return msg.reply(`《✧》 No se pudo descargar el *audio*.\n📌 ${got.error || 'Sin enlace'}\n\nPrueba: ${P}play https://youtu.be/ID`)
-      }
-
       await msg.reply('《✧》 Bajando el audio…')
-      let audioBuffer
-      try {
-        audioBuffer = await downloadBuffer(got.dl)
-      } catch (e) {
-        // fallback corto
-        try { audioBuffer = await getBuffer(got.dl) } catch {
-          return msg.reply(`《✧》 Había enlace, pero falló la descarga del archivo: ${e.message}`)
+      let audioBuffer = null
+      let apiErr = String(got.error || (!got.dl ? 'Sin enlace' : '')).replace(/key=[^&\s]+/gi, 'key=***')
+      if (got.dl) {
+        try {
+          audioBuffer = await downloadBuffer(got.dl)
+        } catch (e) {
+          try { audioBuffer = await getBuffer(got.dl) } catch { apiErr = `falló la descarga del archivo: ${String(e.message).replace(/key=[^&\s]+/gi, 'key=***')}` }
         }
       }
-
-      if (!audioBuffer?.length) {
-        return msg.reply('《✧》 El audio vino vacío.')
+      // ¿Es audio de verdad? (la API a veces devuelve HTML, vacío o recortado)
+      let src = audioBuffer?.length >= 50 * 1024 ? await probeAudio(audioBuffer) : null
+      const ffprobeOk = await haveFfmpeg()
+      if (!audioBuffer?.length || audioBuffer.length < 50 * 1024 || (src && !(src.duration > 5)) || (!src && ffprobeOk)) {
+        console.error('[play] audio de la API inválido', apiErr || '', audioBuffer?.length || 0, JSON.stringify(src))
+        const alt = await ytdlpAudio(url)
+        const altProbe = alt ? await probeAudio(alt) : null
+        if (alt && (altProbe ? altProbe.duration > 5 : !ffprobeOk)) { audioBuffer = alt; src = altProbe; console.log('[play] respaldo yt-dlp OK') }
+        else {
+          return msg.reply(`《✧》 No se pudo descargar el *audio*.\n📌 ${apiErr || 'el archivo vino vacío o incompleto'}\n\nPrueba: ${P}play https://youtu.be/ID`)
+        }
       }
-      // MP3 muy pequenos suelen ser basura/error de la API
-      if (audioBuffer.length < 50 * 1024) {
-        return msg.reply(`《✧》 No envié el audio: el archivo es demasiado pequeno (${(audioBuffer.length/1024).toFixed(1)} KB), parece incompleto. Prueba otro enlace.`)
-      }
+      if (src) console.log(`[play] fuente: ${src.codec} ${Math.round(src.duration)}s ${Math.round(src.bitrate / 1000)}kbps ${(audioBuffer.length / 1048576).toFixed(1)} MB`)
 
       // Portada + etiquetas (iTunes si viene de apple/google; si no, miniatura de YouTube)
       let cover = null
@@ -226,7 +235,8 @@ export default {
         audioBuffer = prep.buffer
         audioExt = prep.ext
         audioMime = prep.mime
-        console.log('[play] audio listo:', audioExt, (audioBuffer.length / 1048576).toFixed(1) + ' MB', prep.tagged ? 'con portada' : 'sin portada')
+        const fin = await probeAudio(audioBuffer)
+        console.log(`[play] enviando: ${audioExt} codec=${fin?.codec || '?'} ${fin ? Math.round(fin.duration) + 's' : ''} ${fin ? Math.round(fin.bitrate / 1000) + 'kbps' : ''} ${(audioBuffer.length / 1048576).toFixed(1)} MB ${prep.tagged ? 'con portada' : 'sin portada'}`)
       } catch (e) { console.error('[play] tags', e?.message || e) }
       // Miniatura chica (WhatsApp ignora miniaturas grandes y usa la vista previa del link de YouTube)
       const thumbSmall = cover ? await makeThumb(cover).catch(() => null) : null
