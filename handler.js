@@ -94,6 +94,16 @@ await db.updateChatUser(msg.chat, msg.sender, 'stats', tf.stats)
   let args = msg.text.slice(usedPrefix.length).trim().split(" ");
   let command = customCmd ?? (args.shift() || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   let text = args.join(' ');
+  // Comando pegado a un link (p. ej. "googlehttps://…" o "playhttps://…") → separa comando y URL
+  if (!customCmd) {
+    const rawTok = msg.text.slice(usedPrefix.length).trim().split(" ")[0] || '';
+    const at = rawTok.search(/https?:\/\//i);
+    if (at > 0) {
+      command = rawTok.slice(0, at).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      args = [rawTok.slice(at), ...args].filter(Boolean);
+      text = args.join(' ');
+    }
+  }
   if (!command) return;
 
 const pushname = msg.pushName || 'Sin nombre'
