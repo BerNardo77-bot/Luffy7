@@ -184,7 +184,9 @@ export default {
         // Miniatura descargada y validada (hq720 → … → default); si no hay, solo texto
         const thumb = await miniaturaYouTube(videoId, url, image)
         ytThumb = thumb
-        if (thumb) {
+        if (meta?.quiet) {
+          // álbum completo: sin tarjeta por canción
+        } else if (thumb) {
           await sock.sendMessage(
             msg.chat,
             { image: thumb.buffer, mimetype: thumb.mimetype, caption },
@@ -266,10 +268,14 @@ export default {
       try {
         await sendDoc()
         sentDoc = true
+        if (meta?.result) meta.result.ok = true
       } catch (e) {
         console.error('[play] doc send', e?.message || e)
       }
-      if (!sentDoc || process.env.PLAY_SEND_AUDIO === '1') await sendAudio()
+      if (!sentDoc || process.env.PLAY_SEND_AUDIO === '1') {
+        await sendAudio()
+        if (meta?.result) meta.result.ok = true
+      }
     } catch (e) {
       console.error('[play]', e)
       await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
