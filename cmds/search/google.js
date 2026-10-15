@@ -954,9 +954,24 @@ export async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
   const al = await resolveAlbum(item.url, mk)
   if (!al?.tracks?.length) return msg.reply(`《✧》 No pude leer las canciones de ese álbum.\n${item.url}`)
   savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items: al.tracks.map(t => ({ ...t, album: al.album || '', image: t.image || al.image || '' })), msg, fromMe: msg.fromMe })
-  const lista = al.tracks.map((t, i) => `${i + 1}. ${t.title}${t.artist && t.artist !== al.artist ? ` — ${t.artist}` : ''}`).join('\n')
-  const text = `💿 *${al.album || 'Álbum'}*${al.artist ? `\n👤 ${al.artist}` : ''}\n\n${lista}\n\n✎ Responde con un número (vale 5 min) y te mando el audio de esa canción.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
-  await replyConMiniatura(sock, msg, text, { ...item, image: al.image || item.image })
+  const lines = al.tracks.map((t, i) => `${i + 1}. ${t.title}${t.artist && t.artist !== al.artist ? ` — ${t.artist}` : ''}`)
+  const head = `💿 *${al.album || 'Álbum'}*${al.artist ? `\n👤 ${al.artist}` : ''} · ${lines.length} canciones\n\n`
+  const foot = `\n\n✎ Responde con un número del 1 al ${lines.length} (vale 5 min) y te mando el audio de esa canción.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
+  // Partes de ≤60 líneas; la primera va con la portada (caption ≤1000 caracteres)
+  const parts = []
+  let cur = [], len = head.length
+  for (const l of lines) {
+    const lim = parts.length ? 3500 : 900
+    if (cur.length >= 60 || len + l.length + 1 > lim) { parts.push(cur); cur = []; len = 0 }
+    cur.push(l); len += l.length + 1
+  }
+  if (cur.length) parts.push(cur)
+  for (let i = 0; i < parts.length; i++) {
+    const last = i === parts.length - 1
+    const body = (i === 0 ? head : '') + parts[i].join('\n') + (last ? foot : '')
+    if (i === 0) await replyConMiniatura(sock, msg, body, { ...item, image: al.image || item.image })
+    else await sock.sendMessage(msg.chat, { text: body }, { quoted: msg })
+  }
 }
 
 /** Busca música (iTunes + álbumes recientes del artista). strict: solo si de verdad parece música. true = respondido */
