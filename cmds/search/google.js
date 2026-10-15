@@ -3,7 +3,8 @@ import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.j
 import play2 from '../dl/play2.js'
 import tiktok from '../dl/tiktok.js'
 import play from '../dl/play.js'
-import { musicKind, resolveTrack, resolveAlbum, searchQuery } from '../../lib/music-page.js'
+import { musicKind, resolveTrack, resolveAlbum, searchQuery, searchItunes, pageMusicQuery, strongAlbum } from '../../lib/music-page.js'
+import yts from 'yt-search'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
@@ -902,6 +903,21 @@ async function takeNumber({ msg, sock, usedPrefix }) {
   }
   const video = enlaceYouTube(item.url)
   if (!video) {
+    // Otra página: ¿es música? (título → Apple Music) → si no, el video de YouTube con ese título
+    clearPick(msg)
+    try {
+      const pq = (await pageMusicQuery(item.url)) || String(item.title || '')
+      if (pq && await buscarMusica({ msg, sock, usedPrefix, q: pq, strict: true })) return true
+      const yq = String(pq || item.title || '').replace(/\s+/g, ' ').trim()
+      const v = yq ? (await yts(yq).catch(() => null))?.videos?.[0] : null
+      if (v?.url) {
+        await replyConMiniatura(sock, msg, `➩ *${short(v.title, 120)}*\n> No es de YouTube; busqué el título y bajo este video.\n> ❑ ${v.url}`, { ...item, url: v.url, image: v.thumbnail || v.image || miniaturaDirecta(v.url) })
+        await play2.run({ msg, sock, args: [v.url], usedPrefix })
+        return true
+      }
+    } catch (e) {
+      console.error('[google] respaldo', e?.message || e)
+    }
     const title = String(item.title || 'Ese resultado').replace(/\s+/g, ' ').trim().slice(0, 160)
     await replyConMiniatura(sock, msg, `《✧》 *${title}* no es un video de YouTube. No lo bajo.\n${item.url}`, item)
     return true
@@ -942,6 +958,39 @@ export async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
   const text = `💿 *${al.album || 'Álbum'}*${al.artist ? `\n👤 ${al.artist}` : ''}\n\n${lista}\n\n✎ Responde con un número (vale 5 min) y te mando el audio de esa canción.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
   await replyConMiniatura(sock, msg, text, { ...item, image: al.image || item.image })
 }
+
+/** Busca música (iTunes + álbumes recientes del artista). strict: solo si de verdad parece música. true = respondido */
+export async function buscarMusica({ msg, sock, usedPrefix, q, strict = false }) {
+  const P = usedPrefix || '$'
+  let items = (await searchItunes(q)).slice(0, 12)
+  if (!items.length && q.split(' ').length > 3) items = (await searchItunes(q.split(' ').slice(0, 4).join(' '))).slice(0, 12)
+  const strong = strongAlbum(items, q)
+  if (strong) {
+    await musicaDesdePagina({ msg, sock, usedPrefix: P, item: { url: strong.albumUrl, title: strong.title, image: strong.image }, mk: musicKind(strong.albumUrl) })
+    return true
+  }
+  const nq = ' ' + normTxt(q) + ' '
+  const hasArtist = (t) => !!normTxt(t.artist) && nq.includes(' ' + normTxt(t.artist).split(' & ')[0] + ' ')
+  items = [...items.filter(hasArtist), ...items.filter(t => !hasArtist(t))]
+  if (strict) {
+    items = items.filter(t => normTxt(t.artist) && nq.includes(' ' + normTxt(t.artist) + ' '))
+  }
+  if (!items.length) {
+    if (strict) return false
+    await msg.reply(`《✧》 No encontré nada en Apple Music para: ${q}`)
+    return true
+  }
+  savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items, msg, fromMe: msg.fromMe })
+  const lista = items.map((t, i) => `${i + 1}. ${t.type === 'album' ? '💿' : '🎵'} ${t.title} — ${t.artist}`).join('\n')
+  const caption = `🍎 *Apple Music:* ${q}\n\n${lista}\n\n✎ Responde con un número (vale 5 min): 🎵 te mando el audio, 💿 te muestro las canciones del álbum.`
+  const img = items[0]?.image
+  if (img) {
+    try { await sock.sendMessage(msg.chat, { image: { url: img }, caption: caption.slice(0, 1000) }, { quoted: msg }); return true } catch {}
+  }
+  await msg.reply(caption)
+  return true
+}
+const normTxt = (s = '') => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 
 export async function takeAlbumNumber({ msg, sock, usedPrefix }) {
   const n = bareNumber(msg)
