@@ -922,11 +922,11 @@ async function takeNumber({ msg, sock, usedPrefix }) {
   return true
 }
 
-const ALBUM_SITE = 'musica-album'
+export const ALBUM_SITE = 'musica-album'
 
 // Canción (Apple Music, Spotify, Genius, Deezer, YouTube Music) → busca en YouTube y manda el audio.
 // Álbum → lista numerada (5 min); el número baja esa canción.
-async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
+export async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
   if (mk.kind === 'track') {
     if (mk.svc === 'ytmusic') return play.run({ msg, sock, args: [`https://youtu.be/${mk.id}`], usedPrefix })
     const t = await resolveTrack(item.url, mk)
@@ -943,7 +943,7 @@ async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
   await replyConMiniatura(sock, msg, text, { ...item, image: al.image || item.image })
 }
 
-async function takeAlbumNumber({ msg, sock, usedPrefix }) {
+export async function takeAlbumNumber({ msg, sock, usedPrefix }) {
   const n = bareNumber(msg)
   if (n == null) return false
   const hit = readPick(msg)
@@ -953,6 +953,11 @@ async function takeAlbumNumber({ msg, sock, usedPrefix }) {
     return true
   }
   const t = hit.items[n - 1]
+  if (t.albumUrl) {
+    clearPick(msg)
+    await musicaDesdePagina({ msg, sock, usedPrefix, item: { url: t.albumUrl, title: t.title, image: t.image }, mk: musicKind(t.albumUrl) })
+    return true
+  }
   const args = t.url ? [t.url] : searchQuery(t).split(' ')
   await msg.reply(`🎵 *${n}. ${t.title}*\nTe mando el audio…`)
   try {
@@ -1016,6 +1021,17 @@ export default {
     const q = (text || args.join(' ')).trim()
     if (!q) {
       return msg.reply(`✎ Uso: ${p}google <texto>\nEjemplo: ${p}google algebra de baldor`)
+    }
+    // Link de música (Apple Music, Spotify, Genius, Deezer, YouTube Music) → directo a la canción/álbum
+    const mkq = /^https?:\/\/\S+$/.test(q) ? musicKind(q) : null
+    if (mkq && (mkq.kind === 'track' || mkq.kind === 'album')) {
+      try {
+        await musicaDesdePagina({ msg, sock, usedPrefix, item: { url: q, title: '' }, mk: mkq })
+      } catch (e) {
+        console.error('[google] musica', e?.message || e)
+        await msg.reply(`《✧》 No pude leer esa página de música: ${String(e?.message || e).slice(0, 120)}\n${q}`).catch(() => {})
+      }
+      return
     }
 
     try { await msg.react('🕒') } catch {}
