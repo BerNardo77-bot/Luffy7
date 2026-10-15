@@ -17,7 +17,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
-import { tagMp3, fetchCover } from '../../lib/audio-tags.js'
+import { tagMp3, fetchCover, makeThumb } from '../../lib/audio-tags.js'
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -223,9 +223,17 @@ export default {
           title: meta?.title || title, artist: meta?.artist || canal, album: meta?.album || '', cover
         })
       } catch (e) { console.error('[play] tags', e?.message || e) }
-      const adReply = cover ? { contextInfo: { externalAdReply: { title: String(meta?.title || title).slice(0, 80), body: String(meta?.artist || canal).slice(0, 80), thumbnail: cover, mediaType: 1, renderLargerThumbnail: false, sourceUrl: url } } } : {}
-      const fileName = (got.fileName || `${title}.mp3`).replace(/[^\w\s.-]/g, '').slice(0, 80) || 'audio.mp3'
+      // Miniatura chica (WhatsApp ignora miniaturas grandes y usa la vista previa del link de YouTube)
+      const thumbSmall = cover ? await makeThumb(cover).catch(() => null) : null
+      const songTitle = String(meta?.title || title)
+      const songArtist = String(meta?.artist || canal)
+      const adReply = thumbSmall ? { contextInfo: { externalAdReply: { title: songTitle.slice(0, 80), body: songArtist.slice(0, 80), thumbnail: thumbSmall, mediaType: 1, renderLargerThumbnail: false } } } : {}
+      const clean = (x) => String(x).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim()
+      const docName = (clean(songArtist && songArtist !== 'Desconocido' ? `${songArtist} - ${songTitle}` : songTitle).slice(0, 100) || 'audio') + '.mp3'
+      const fileName = docName
 
+      // 1) Audio para escuchar en el chat
+      let sentAudio = false
       try {
         await sock.sendMessage(msg.chat, {
           audio: audioBuffer,
@@ -234,13 +242,19 @@ export default {
           ptt: false,
           ...adReply
         }, { quoted: msg })
+        sentAudio = true
       } catch (e) {
-        console.error('[play] audio send', e)
+        console.error('[play] audio send', e?.message || e)
+      }
+      // 2) Documento MP3 con nombre y portada (el audio de WhatsApp pierde nombre y carátula al guardarlo).
+      //    PLAY_SEND_DOC=0 lo desactiva (si el audio sí se envió).
+      if (!sentAudio || process.env.PLAY_SEND_DOC !== '0') {
         await sock.sendMessage(msg.chat, {
           document: audioBuffer,
           mimetype: 'audio/mpeg',
-          fileName,
-          caption: title
+          fileName: docName,
+          caption: `🎵 ${songTitle}${songArtist ? ` — ${songArtist}` : ''}${meta?.album ? `\n💿 ${meta.album}` : ''}`,
+          ...(thumbSmall ? { jpegThumbnail: thumbSmall } : {})
         }, { quoted: msg })
       }
     } catch (e) {
