@@ -17,7 +17,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
-import { prepareAudio, fetchCover, makeThumb, probeAudio, ytdlpAudio, haveFfmpeg } from '../../lib/audio-tags.js'
+import { youtubeCover, prepareAudio, fetchCover, makeThumb, probeAudio, ytdlpAudio, haveFfmpeg } from '../../lib/audio-tags.js'
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -230,7 +230,7 @@ export default {
       let cover = null
       let audioExt = 'mp3', audioMime = 'audio/mpeg'
       try {
-        cover = (meta?.cover && await fetchCover(meta.cover)) || ytThumb?.buffer || null
+        cover = (await youtubeCover(videoId)) || (meta?.cover && await fetchCover(meta.cover)) || ytThumb?.buffer || null
         const prep = await prepareAudio(audioBuffer, {
           title: meta?.title || title, artist: meta?.artist || canal, album: meta?.album || '', cover
         })
