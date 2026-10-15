@@ -949,7 +949,7 @@ export async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
     const q = t ? searchQuery(t) : ''
     if (!q) return msg.reply(`《✧》 No pude saber qué canción es.\n${item.url}`)
     await msg.reply(`🎵 *${q}*\nLa busco en YouTube y te mando el audio…`)
-    return play.run({ msg, sock, args: q.split(' '), usedPrefix, meta: { title: t.title, artist: t.artist, album: t.album || '', cover: t.image || item.image || '' } })
+    return play.run({ msg, sock, args: q.split(' '), usedPrefix, meta: { title: t.title, artist: t.artist, album: t.album || '', dur: t.dur || 0, cover: t.image || item.image || '' } })
   }
   const al = await resolveAlbum(item.url, mk)
   if (!al?.tracks?.length) return msg.reply(`《✧》 No pude leer las canciones de ese álbum.\n${item.url}`)
@@ -1032,7 +1032,7 @@ async function bajarTodas({ msg, sock, usedPrefix, hit }) {
       const result = {}
       try {
         const args = t.url ? [t.url] : searchQuery(t).split(' ')
-        await play.run({ msg: quietMsg, sock, args, usedPrefix, meta: { quiet: true, result, ...(t.url ? {} : { title: t.title, artist: t.artist, album: t.album || '', cover: t.image || '' }) } })
+        await play.run({ msg: quietMsg, sock, args, usedPrefix, meta: { quiet: true, result, ...(t.url ? {} : { title: t.title, artist: t.artist, album: t.album || '', dur: t.dur || 0, cover: t.image || '' }) } })
       } catch (e) {
         console.error('[google] todas', e?.message || e)
       }

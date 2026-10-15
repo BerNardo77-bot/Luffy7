@@ -60,6 +60,23 @@ async function searchYoutube(query) {
   return []
 }
 
+/** Con datos de la pista (Apple), elige el video que mejor coincide: palabras del título/artista + duración. */
+function pickBest(videos, meta) {
+  if (!meta?.title || videos.length < 2) return videos[0]
+  const n = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9ñ]+/).filter(w => w.length > 1)
+  const tw = n(meta.title), aw = n(meta.artist)
+  const secs = (t) => String(t || '').split(':').reduce((a, x) => a * 60 + (Number(x) || 0), 0)
+  let best = videos[0], bs = -1e9
+  videos.slice(0, 10).forEach((v, i) => {
+    const vw = n(v.title + ' ' + (v.author?.name || ''))
+    let sc = (tw.length ? tw.filter(w => vw.includes(w)).length / tw.length : 0) * 10 + (aw.some(w => vw.includes(w)) ? 2 : 0) - i * 0.3
+    if (meta.dur > 0 && v.timestamp) sc -= Math.min(Math.abs(secs(v.timestamp) - meta.dur) / 10, 6)
+    if (sc > bs) { bs = sc; best = v }
+  })
+  if (best !== videos[0]) console.log(`[play] elegido por coincidencia: ${best.title}`)
+  return best
+}
+
 function getApiKey() {
   let key = (typeof api !== 'undefined' && api?.key ? String(api.key) : '').trim()
   if (!key || key === 'TU-API-KEY' || key === 'undefined') key = FALLBACK_KEY
@@ -162,7 +179,7 @@ export default {
 
       const video = videoMatch
         ? (videos.find(v => v.videoId === videoMatch[1]) || videos[0])
-        : videos[0]
+        : pickBest(videos, meta)
 
       const { title, author, timestamp: duration, views, url, image, videoId } = video
       const vistas = (views || 0).toLocaleString()
