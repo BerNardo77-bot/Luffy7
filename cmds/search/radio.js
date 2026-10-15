@@ -6,6 +6,9 @@ import { makeThumb } from '../../lib/audio-tags.js'
 // radio <nombre, país o ciudad> → lista numerada (vale 10 min); responde N (graba 60 s) o "N 5" (5 min)
 // radio <link del stream> [min] → graba directo. "rec 10" vuelve a grabar la última estación.
 const SITE = 'radio'
+const DUR_SITE = 'radio-dur'
+const DURS = [5, 10, 15, 30]
+const HINT = `Responde *2 10* para grabar 10 min (máx. ${MAX_REC_MIN})`
 const TTL = 10 * 60 * 1000
 const LIST_MAX = 50
 const CARDS = 10
@@ -23,10 +26,13 @@ async function grabar({ msg, sock, st, seconds }) {
   try {
     countClick(st.uuid)
     const fav = await faviconCover(st.favicon)
-    const info = `${stationInfo(st)}\n\n⏺ Grabando ${seconds >= 60 ? Math.round(seconds / 60) + ' min' : seconds + ' s'}…`
+    const min = Math.round(seconds / 60)
+    const info = `${stationInfo(st)}\n\n⏺ Grabando ${seconds >= 60 ? min + ' min' : seconds + ' s'}…${seconds >= 300 ? ' te aviso al terminar.' : ''}\n✎ Al terminar te doy opciones de 5/10/15/30 min, o escribe *rec 30*.`
     if (fav) await sock.sendMessage(msg.chat, { image: fav, caption: info }, { quoted: msg })
     else await msg.reply(info)
-    rec = await recordStation(st, seconds)
+    const t0 = Date.now()
+    const tick = seconds >= 600 ? setInterval(() => { msg.reply(`⏺ ${st.name.slice(0, 60)}: ${Math.round((Date.now() - t0) / 60000)}/${min} min grabados…`).catch(() => {}) }, 10 * 60 * 1000) : null
+    try { rec = await recordStation(st, seconds) } finally { if (tick) clearInterval(tick) }
     console.log(`[radio] ${st.name} ${rec.seconds}s ${(rec.size / 1048576).toFixed(1)} MB ${rec.url}`)
     const thumb = rec.cover ? await makeThumb(rec.cover, 300).catch(() => null) : null
     await sock.sendMessage(msg.chat, {
@@ -34,6 +40,9 @@ async function grabar({ msg, sock, st, seconds }) {
       caption: `📻 ${st.name} · ${Math.floor(rec.seconds / 60)}:${String(rec.seconds % 60).padStart(2, '0')}`,
       ...(thumb ? { jpegThumbnail: thumb } : {})
     }, { quoted: msg })
+    // Menú de duraciones: lista más reciente → responder 1-4 graba esa duración de la misma estación
+    savePick(msg.chat, { msg, sender: msg.sender, site: DUR_SITE, items: DURS.map(m => ({ st, min: m })), maxItems: 4, ttlMs: TTL })
+    await msg.reply(`⏺ ¿Grabar más de *${st.name.slice(0, 60)}*?\n${DURS.map((m, i) => `${i + 1}) ${m} min`).join('\n')}\nResponde el número (vale 10 min) o *rec N* (1-${MAX_REC_MIN}).`)
   } catch (e) {
     console.error('[radio]', e?.message || e)
     await msg.reply(`《✧》 ${String(e?.message || e).slice(0, 200)}\nPrueba otra estación.`).catch(() => {})
@@ -45,7 +54,7 @@ async function grabar({ msg, sock, st, seconds }) {
 
 async function mostrarLista({ msg, sock, q, P, list }) {
   savePick(msg.chat, { msg, sender: msg.sender, site: SITE, items: list, maxItems: LIST_MAX, ttlMs: TTL })
-  await msg.reply(`📻 *Radios* › ${q}\n${list.length} ${list.length === 1 ? 'estación' : 'estaciones'}. Responde con el número (1-${list.length}) y grabo ${DEFAULT_REC_SEC} s, o *número minutos* (ej. *1 5*) hasta ${MAX_REC_MIN} min · vale 10 min.`)
+  await msg.reply(`📻 *Radios* › ${q}\n${list.length} ${list.length === 1 ? 'estación' : 'estaciones'}. Responde con el número (1-${list.length}) y grabo ${DEFAULT_REC_SEC} s.\n${HINT} · vale 10 min.`)
   const favs = await Promise.all(list.slice(0, CARDS).map(s => faviconCover(s.favicon).catch(() => null)))
   const sinImg = []
   for (let i = 0; i < Math.min(CARDS, list.length); i++) {
@@ -55,6 +64,7 @@ async function mostrarLista({ msg, sock, q, P, list }) {
   }
   const rest = [...sinImg, ...list.slice(CARDS).map((s, j) => stationLine(s, CARDS + j))]
   for (let i = 0; i < rest.length; i += 40) await msg.reply(rest.slice(i, i + 40).join('\n'))
+  await msg.reply(`✎ Responde el número (1-${list.length}) → ${DEFAULT_REC_SEC} s. ${HINT}.`)
 }
 
 export default {
@@ -93,6 +103,13 @@ export async function before({ msg, sock }) {
   m = t.match(/^(\d{1,4})(?:\s+(\d{1,3})\s*(?:m|min|minutos?)?)?$/i)
   if (!m) return false
   const hit = readPick(msg)
+  if (hit && hit.site === DUR_SITE && !m[2]) {
+    const n = Number(m[1])
+    if (n < 1 || n > hit.items.length) { await msg.reply(`Elige 1-${hit.items.length}.`); return true }
+    const it = hit.items[n - 1]
+    grabar({ msg, sock, st: it.st, seconds: it.min * 60 }).catch(() => {})
+    return true
+  }
   if (!hit || hit.site !== SITE) return false
   const n = Number(m[1])
   if (n < 1 || n > hit.items.length) { await msg.reply(`Elige un número del 1 al ${hit.items.length}.`); return true }
