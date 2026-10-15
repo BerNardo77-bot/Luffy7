@@ -254,21 +254,22 @@ export default {
         ptt: false,
         ...adReply
       }, { quoted: msg })
-      // Por defecto solo el documento MP3 (nombre + portada). PLAY_SEND_AUDIO=1 manda también el audio.
-      let sentDoc = false
+      const sendDoc = () => sock.sendMessage(msg.chat, {
+        document: audioBuffer,
+        mimetype: audioMime,
+        fileName: docName,
+        caption: `🎵 ${songTitle}${songArtist ? ` — ${songArtist}` : ''}${meta?.album ? `\n💿 ${meta.album}` : ''}`,
+        ...(thumbSmall ? { jpegThumbnail: thumbSmall } : {})
+      }, { quoted: msg })
+      // Por defecto: audio en el chat (se reproduce ahí). PLAY_SEND_DOC=1 manda también el documento con nombre.
+      let sentAudio = false
       try {
-        await sock.sendMessage(msg.chat, {
-          document: audioBuffer,
-          mimetype: audioMime,
-          fileName: docName,
-          caption: `🎵 ${songTitle}${songArtist ? ` — ${songArtist}` : ''}${meta?.album ? `\n💿 ${meta.album}` : ''}`,
-          ...(thumbSmall ? { jpegThumbnail: thumbSmall } : {})
-        }, { quoted: msg })
-        sentDoc = true
+        await sendAudio()
+        sentAudio = true
       } catch (e) {
-        console.error('[play] doc send', e?.message || e)
+        console.error('[play] audio send', e?.message || e)
       }
-      if (!sentDoc || process.env.PLAY_SEND_AUDIO === '1') await sendAudio()
+      if (!sentAudio || process.env.PLAY_SEND_DOC === '1') await sendDoc()
     } catch (e) {
       console.error('[play]', e)
       await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
