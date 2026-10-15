@@ -232,23 +232,16 @@ export default {
       const docName = (clean(songArtist && songArtist !== 'Desconocido' ? `${songArtist} - ${songTitle}` : songTitle).slice(0, 100) || 'audio') + '.mp3'
       const fileName = docName
 
-      // 1) Audio para escuchar en el chat
-      let sentAudio = false
+      const sendAudio = () => sock.sendMessage(msg.chat, {
+        audio: audioBuffer,
+        mimetype: 'audio/mpeg',
+        fileName,
+        ptt: false,
+        ...adReply
+      }, { quoted: msg })
+      // Por defecto solo el documento MP3 (nombre + portada). PLAY_SEND_AUDIO=1 manda también el audio.
+      let sentDoc = false
       try {
-        await sock.sendMessage(msg.chat, {
-          audio: audioBuffer,
-          mimetype: 'audio/mpeg',
-          fileName,
-          ptt: false,
-          ...adReply
-        }, { quoted: msg })
-        sentAudio = true
-      } catch (e) {
-        console.error('[play] audio send', e?.message || e)
-      }
-      // 2) Documento MP3 con nombre y portada (el audio de WhatsApp pierde nombre y carátula al guardarlo).
-      //    PLAY_SEND_DOC=0 lo desactiva (si el audio sí se envió).
-      if (!sentAudio || process.env.PLAY_SEND_DOC !== '0') {
         await sock.sendMessage(msg.chat, {
           document: audioBuffer,
           mimetype: 'audio/mpeg',
@@ -256,7 +249,11 @@ export default {
           caption: `🎵 ${songTitle}${songArtist ? ` — ${songArtist}` : ''}${meta?.album ? `\n💿 ${meta.album}` : ''}`,
           ...(thumbSmall ? { jpegThumbnail: thumbSmall } : {})
         }, { quoted: msg })
+        sentDoc = true
+      } catch (e) {
+        console.error('[play] doc send', e?.message || e)
       }
+      if (!sentDoc || process.env.PLAY_SEND_AUDIO === '1') await sendAudio()
     } catch (e) {
       console.error('[play]', e)
       await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
