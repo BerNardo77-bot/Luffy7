@@ -17,6 +17,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
+import { tagMp3, fetchCover } from '../../lib/audio-tags.js'
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -135,7 +136,7 @@ async function obtenerAudio(videoUrl, title, key) {
 export default {
   command: ['play', 'mp3', 'ytmp3', 'ytaudio', 'playaudio'],
   category: 'downloader',
-  run: async ({ msg, sock, args, usedPrefix }) => {
+  run: async ({ msg, sock, args, meta = null, usedPrefix }) => {
     const P = await prefijoActual({ sock, usedPrefix })
     try {
       if (!args[0]) {
@@ -169,10 +170,12 @@ export default {
 > _──  ִ    ۟  *¡Enviando audio, por favor espera!*_
 > 🎧 Audio calidad *320 kbps*`
 
+      let ytThumb = null
       // Nunca tumbar #play por la miniatura
       try {
         // Miniatura descargada y validada (hq720 → … → default); si no hay, solo texto
         const thumb = await miniaturaYouTube(videoId, url, image)
+        ytThumb = thumb
         if (thumb) {
           await sock.sendMessage(
             msg.chat,
@@ -212,6 +215,15 @@ export default {
         return msg.reply(`《✧》 No envié el audio: el archivo es demasiado pequeno (${(audioBuffer.length/1024).toFixed(1)} KB), parece incompleto. Prueba otro enlace.`)
       }
 
+      // Portada + etiquetas (iTunes si viene de apple/google; si no, miniatura de YouTube)
+      let cover = null
+      try {
+        cover = (meta?.cover && await fetchCover(meta.cover)) || ytThumb?.buffer || null
+        audioBuffer = await tagMp3(audioBuffer, {
+          title: meta?.title || title, artist: meta?.artist || canal, album: meta?.album || '', cover
+        })
+      } catch (e) { console.error('[play] tags', e?.message || e) }
+      const adReply = cover ? { contextInfo: { externalAdReply: { title: String(meta?.title || title).slice(0, 80), body: String(meta?.artist || canal).slice(0, 80), thumbnail: cover, mediaType: 1, renderLargerThumbnail: false, sourceUrl: url } } } : {}
       const fileName = (got.fileName || `${title}.mp3`).replace(/[^\w\s.-]/g, '').slice(0, 80) || 'audio.mp3'
 
       try {
@@ -219,7 +231,8 @@ export default {
           audio: audioBuffer,
           mimetype: 'audio/mpeg',
           fileName,
-          ptt: false
+          ptt: false,
+          ...adReply
         }, { quoted: msg })
       } catch (e) {
         console.error('[play] audio send', e)
