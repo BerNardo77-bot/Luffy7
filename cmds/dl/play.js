@@ -17,7 +17,7 @@ async function fetchFollow(url, opts = {}, maxRedirects = 8) {
 import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
-import { tagMp3, fetchCover, makeThumb } from '../../lib/audio-tags.js'
+import { prepareAudio, fetchCover, makeThumb } from '../../lib/audio-tags.js'
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -217,11 +217,16 @@ export default {
 
       // Portada + etiquetas (iTunes si viene de apple/google; si no, miniatura de YouTube)
       let cover = null
+      let audioExt = 'mp3', audioMime = 'audio/mpeg'
       try {
         cover = (meta?.cover && await fetchCover(meta.cover)) || ytThumb?.buffer || null
-        audioBuffer = await tagMp3(audioBuffer, {
+        const prep = await prepareAudio(audioBuffer, {
           title: meta?.title || title, artist: meta?.artist || canal, album: meta?.album || '', cover
         })
+        audioBuffer = prep.buffer
+        audioExt = prep.ext
+        audioMime = prep.mime
+        console.log('[play] audio listo:', audioExt, (audioBuffer.length / 1048576).toFixed(1) + ' MB', prep.tagged ? 'con portada' : 'sin portada')
       } catch (e) { console.error('[play] tags', e?.message || e) }
       // Miniatura chica (WhatsApp ignora miniaturas grandes y usa la vista previa del link de YouTube)
       const thumbSmall = cover ? await makeThumb(cover).catch(() => null) : null
@@ -229,12 +234,12 @@ export default {
       const songArtist = String(meta?.artist || canal)
       const adReply = thumbSmall ? { contextInfo: { externalAdReply: { title: songTitle.slice(0, 80), body: songArtist.slice(0, 80), thumbnail: thumbSmall, mediaType: 1, renderLargerThumbnail: false } } } : {}
       const clean = (x) => String(x).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim()
-      const docName = (clean(songArtist && songArtist !== 'Desconocido' ? `${songArtist} - ${songTitle}` : songTitle).slice(0, 100) || 'audio') + '.mp3'
+      const docName = (clean(songArtist && songArtist !== 'Desconocido' ? `${songArtist} - ${songTitle}` : songTitle).slice(0, 100) || 'audio') + '.' + audioExt
       const fileName = docName
 
       const sendAudio = () => sock.sendMessage(msg.chat, {
         audio: audioBuffer,
-        mimetype: 'audio/mpeg',
+        mimetype: audioMime,
         fileName,
         ptt: false,
         ...adReply
@@ -244,7 +249,7 @@ export default {
       try {
         await sock.sendMessage(msg.chat, {
           document: audioBuffer,
-          mimetype: 'audio/mpeg',
+          mimetype: audioMime,
           fileName: docName,
           caption: `🎵 ${songTitle}${songArtist ? ` — ${songArtist}` : ''}${meta?.album ? `\n💿 ${meta.album}` : ''}`,
           ...(thumbSmall ? { jpegThumbnail: thumbSmall } : {})
