@@ -18,7 +18,6 @@ import fetch from 'node-fetch'
 import { getBuffer } from '#serialize'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { youtubeCover, prepareAudio, fetchCover, makeThumb, probeAudio, ytdlpAudio, haveFfmpeg } from '../../lib/audio-tags.js'
-import { betterTitle } from '../../lib/music-page.js'
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
@@ -227,7 +226,6 @@ export default {
       }
       if (src) console.log(`[play] fuente: ${src.codec} ${Math.round(src.duration)}s ${Math.round(src.bitrate / 1000)}kbps ${(audioBuffer.length / 1048576).toFixed(1)} MB`)
 
-      if (meta?.title) { const nt = betterTitle(meta.title, title, meta.artist); if (nt !== meta.title) { console.log(`[titulo] "${meta.title}" → "${nt}"`); meta.title = nt } }
       // Portada + etiquetas (iTunes si viene de apple/google; si no, miniatura de YouTube)
       let cover = null
       let audioExt = 'mp3', audioMime = 'audio/mpeg'
