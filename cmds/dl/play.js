@@ -261,15 +261,15 @@ export default {
         caption: `🎵 ${songTitle}${songArtist ? ` — ${songArtist}` : ''}${meta?.album ? `\n💿 ${meta.album}` : ''}`,
         ...(thumbSmall ? { jpegThumbnail: thumbSmall } : {})
       }, { quoted: msg })
-      // Por defecto: audio en el chat y luego el documento MP3 con nombre y portada. PLAY_SEND_DOC=0 quita el documento.
-      let sentAudio = false
+      // Por defecto: solo el documento MP3 con nombre y portada. PLAY_SEND_AUDIO=1 manda también el audio en el chat.
+      let sentDoc = false
       try {
-        await sendAudio()
-        sentAudio = true
+        await sendDoc()
+        sentDoc = true
       } catch (e) {
-        console.error('[play] audio send', e?.message || e)
+        console.error('[play] doc send', e?.message || e)
       }
-      if (!sentAudio || process.env.PLAY_SEND_DOC !== '0') await sendDoc()
+      if (!sentDoc || process.env.PLAY_SEND_AUDIO === '1') await sendAudio()
     } catch (e) {
       console.error('[play]', e)
       await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
