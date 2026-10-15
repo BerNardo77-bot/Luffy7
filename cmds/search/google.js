@@ -949,11 +949,11 @@ export async function musicaDesdePagina({ msg, sock, usedPrefix, item, mk }) {
     const q = t ? searchQuery(t) : ''
     if (!q) return msg.reply(`《✧》 No pude saber qué canción es.\n${item.url}`)
     await msg.reply(`🎵 *${q}*\nLa busco en YouTube y te mando el audio…`)
-    return play.run({ msg, sock, args: q.split(' '), usedPrefix })
+    return play.run({ msg, sock, args: q.split(' '), usedPrefix, meta: { title: t.title, artist: t.artist, album: t.album || '', cover: t.image || item.image || '' } })
   }
   const al = await resolveAlbum(item.url, mk)
   if (!al?.tracks?.length) return msg.reply(`《✧》 No pude leer las canciones de ese álbum.\n${item.url}`)
-  savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items: al.tracks, msg, fromMe: msg.fromMe })
+  savePick(msg.chat, { sender: msg.sender, site: ALBUM_SITE, items: al.tracks.map(t => ({ ...t, album: al.album || '', image: t.image || al.image || '' })), msg, fromMe: msg.fromMe })
   const lista = al.tracks.map((t, i) => `${i + 1}. ${t.title}${t.artist && t.artist !== al.artist ? ` — ${t.artist}` : ''}`).join('\n')
   const text = `💿 *${al.album || 'Álbum'}*${al.artist ? `\n👤 ${al.artist}` : ''}\n\n${lista}\n\n✎ Responde con un número (vale 5 min) y te mando el audio de esa canción.${al.fromYt ? '\n> (lista sacada de YouTube)' : ''}`
   await replyConMiniatura(sock, msg, text, { ...item, image: al.image || item.image })
@@ -1010,7 +1010,7 @@ export async function takeAlbumNumber({ msg, sock, usedPrefix }) {
   const args = t.url ? [t.url] : searchQuery(t).split(' ')
   await msg.reply(`🎵 *${n}. ${t.title}*\nTe mando el audio…`)
   try {
-    await play.run({ msg, sock, args, usedPrefix })
+    await play.run({ msg, sock, args, usedPrefix, meta: t.url ? null : { title: t.title, artist: t.artist, album: t.album || '', cover: t.image || '' } })
   } catch (e) {
     console.error('[google] album', e?.message || e)
     await msg.reply(`《✧》 Error: ${e?.message || e}`).catch(() => {})
