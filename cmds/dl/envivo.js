@@ -27,7 +27,7 @@ async function grabar(msg, sock, url, min) {
 }
 
 export default {
-  command: ['envivo', 'live', 'ytlive'],
+  command: ['envivo', 'envivos', 'live', 'ytlive'],
   category: 'downloader',
   run: async ({ msg, sock, args, text, usedPrefix }) => {
     const P = usedPrefix || '$'
@@ -37,7 +37,7 @@ export default {
     const min = Number((q.match(/\s(\d{1,3})\s*(m|min|minutos?)?\s*$/i) || [])[1]) || 0
     await msg.reply('📡 Buscando el en vivo…')
     const info = await liveInfo(url)
-    if (info.status === 'nouser') return msg.reply('Ese usuario de TikTok no existe. Revisa cómo se escribe.')
+    if (info.status === 'nouser') return msg.reply(info.suggest ? `No encontré a @${info.user}. ¿Quisiste decir *@${info.suggest.user}*?${info.suggest.live ? ' (está en vivo ahora 🔴)' : ''}\nPrueba: envivo tt @${info.suggest.user}` : 'No encontré ese usuario de TikTok. Revisa el usuario (el que va después de @ en el perfil, puede llevar punto o guion bajo).')
     if (info.status === 'blocked') return msg.reply(info.reason)
     if (info.tiktok && info.status === 'notlive') return msg.reply('Ese usuario de TikTok no está en vivo ahora (o el usuario no existe). Cuando empiece su live, vuelve a intentarlo.')
     if (info.status === 'upcoming') return msg.reply(`🗓 Ese en vivo todavía no empieza${info.title ? `: *${info.title}*` : ''}. Vuelve a intentarlo cuando comience.`)
