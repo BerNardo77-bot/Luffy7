@@ -86,7 +86,7 @@ async function takeNumber({ msg, sock, usedPrefix }) {
     const title = String(item.title || 'Ese video').replace(/\s+/g, ' ').trim().slice(0, 160)
     await msg.reply(
       `《✧》 *${title}* dura ~${Math.round(sec / 60)} min.\n` +
-      `El límite es ${MAX_VIDEO_MIN} min (como ${P}ytvideo). No lo bajo.\n` +
+      `El límite es ${Math.round(MAX_DURATION_SEC / 60)} min (como ${P}ytvideo). No lo bajo.\n` +
       `🔗 ${item.url}`
     )
     return true
