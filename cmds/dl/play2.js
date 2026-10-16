@@ -1,11 +1,12 @@
 import { replyDlError } from '../../lib/oversize.js'
 import fetch from 'node-fetch'
+import { splitVideo, cleanParts, partsFor } from '../../lib/video-split.js'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 import { MAX_VIDEO_MIN, MAX_VIDEO_SEC } from '../../lib/limits.js';
 import {
   ytdlpToFile, urlToFile, sendVideoFile, friendlyError, ytdlpSearch,
-  isNoCredit, NO_CREDIT_MSG, mb, MAX_FILE_BYTES
+  isNoCredit, NO_CREDIT_MSG, mb, MAX_FILE_BYTES, rmQuiet
 } from '../../lib/mediadl.js';
 
 // Tope de duración compartido (MAX_VIDEO_MIN, 120 min por defecto). Lo usan #ytvideo y #ytsearch.
@@ -182,10 +183,24 @@ export default {
         const got = await ytdlpToFile(url, {
           maxSec: MAX_DURATION_SEC,
           tag: 'yt',
+          split: true,
           onStatus: (t) => msg.reply(`《✧》 ${t}`).catch(() => {})
         })
         const name = (got.title || title || 'video').replace(/[^\w\s.-]/g, '').trim().slice(0, 60) || 'video'
         const cap = `🎬 *${got.title || title || 'YouTube'}*\n${got.height ? got.height + 'p · ' : ''}${mb(got.size)} MB`
+        if (got.size > MAX_FILE_BYTES) {
+          // Más grande que un documento de WhatsApp: partes por tiempo, misma calidad
+          await msg.reply(`《✧》 El video pesa ${mb(got.size)} MB (límite ${mb(MAX_FILE_BYTES)} MB). Lo parto en ${partsFor(got.size, MAX_FILE_BYTES)} partes, sin bajar la calidad…`).catch(() => {})
+          let parts = null
+          try {
+            parts = await splitVideo(got.file, MAX_FILE_BYTES, { title: got.title || title || 'video', maxParts: 8 })
+            for (const p of parts) await sendVideoFile(sock, msg, p.file, { caption: `${cap}\n📦 Parte ${p.index} de ${p.total}`, fileName: p.name })
+          } catch (e) {
+            console.error('[ytvideo] split', e?.message || e)
+            await msg.reply(`《✧》 No pude partir el video (${String(e?.message || e).slice(0, 120)}).\n🔗 ${url}`).catch(() => {})
+          } finally { cleanParts(parts); rmQuiet(got.file) }
+          return
+        }
         if (got.size > 64 * 1024 * 1024) await msg.reply(`《✧》 Pesa ${mb(got.size)} MB; lo mando como *documento* para no perder calidad…`).catch(() => {})
         await sendVideoFile(sock, msg, got.file, { caption: cap, fileName: `${name}.mp4` })
         return
