@@ -1,6 +1,6 @@
 import { replyDlError } from '../../lib/oversize.js'
 import fetch from 'node-fetch'
-import { splitVideo, cleanParts, partsFor } from '../../lib/video-split.js'
+import { splitVideo, cleanParts, partsFor, maxPartsFor, bigWarning } from '../../lib/video-split.js'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 import { MAX_VIDEO_MIN, MAX_VIDEO_SEC } from '../../lib/limits.js';
@@ -195,7 +195,9 @@ export default {
           await msg.reply(`《✧》 El video pesa ${mb(got.size)} MB (límite ${mb(MAX_FILE_BYTES)} MB). Lo parto en ${partsFor(got.size, MAX_FILE_BYTES)} partes, sin bajar la calidad…`).catch(() => {})
           let parts = null
           try {
-            parts = await splitVideo(got.file, MAX_FILE_BYTES, { title: got.title || title || 'video', maxParts: 8 })
+            parts = await splitVideo(got.file, MAX_FILE_BYTES, { title: got.title || title || 'video', maxParts: maxPartsFor(MAX_FILE_BYTES) + 3 })
+            const warn = bigWarning(got.size, parts.length)
+            if (warn) await msg.reply(warn).catch(() => {})
             for (const p of parts) await sendVideoFile(sock, msg, p.file, { caption: `${cap}\n📦 Parte ${p.index} de ${p.total}`, fileName: p.name })
           } catch (e) {
             console.error('[ytvideo] split', e?.message || e)
