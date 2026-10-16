@@ -9,8 +9,10 @@ import {
   isNoCredit, NO_CREDIT_MSG, mb, MAX_FILE_BYTES, rmQuiet
 } from '../../lib/mediadl.js';
 
-// Tope de duración compartido (MAX_VIDEO_MIN, 120 min por defecto). Lo usan #ytvideo y #ytsearch.
-export const MAX_DURATION_SEC = MAX_VIDEO_SEC
+// Tope de duración de #ytvideo y #ytsearch (por defecto ninguno).
+// Sin tope de duración (como AndrewWife): lo que limita es el espacio libre; si pasa de 1950 MB va en partes.
+// YT_MAX_VIDEO_MIN=N vuelve a poner un tope si hace falta.
+export const MAX_DURATION_SEC = (Number(process.env.YT_MAX_VIDEO_MIN) || 0) * 60 || Infinity
 const FALLBACK_KEY = 'LUFFY-FIX67'
 const MAX_DOWNLOAD_BYTES = MAX_FILE_BYTES
 
@@ -171,7 +173,7 @@ export default {
         } catch { await msg.reply(caption).catch(() => {}) }
         const sec = Number(videoInfo.seconds) || parseDurationToSeconds(videoInfo.timestamp)
         if (sec > MAX_DURATION_SEC) {
-          return msg.reply(`《✧》 *${title}* dura ~${Math.round(sec / 60)} min. El límite es ${MAX_VIDEO_MIN} min.\n🔗 ${url}`)
+          return msg.reply(`《✧》 *${title}* dura ~${Math.round(sec / 60)} min. El límite es ${Math.round(MAX_DURATION_SEC / 60)} min.\n🔗 ${url}`)
         }
       } else {
         await msg.reply('《✧》 Bajando el video con yt-dlp (hasta 1080p)…')
@@ -181,7 +183,7 @@ export default {
       let ytErr = null
       try {
         const got = await ytdlpToFile(url, {
-          maxSec: MAX_DURATION_SEC,
+          maxSec: Number.isFinite(MAX_DURATION_SEC) ? MAX_DURATION_SEC : 0,
           tag: 'yt',
           split: true,
           onStatus: (t) => msg.reply(`《✧》 ${t}`).catch(() => {})
@@ -208,7 +210,7 @@ export default {
         ytErr = e
         console.error('[ytvideo] yt-dlp', e?.message || e)
         if (/^(TOO_LONG|TOO_BIG|NO_SPACE):/.test(String(e?.message))) {
-          return replyDlError({ msg, sock, e, url: url, maxSec: MAX_VIDEO_SEC, maxMin: MAX_VIDEO_MIN })
+          return replyDlError({ msg, sock, e, url: url, maxSec: 0, maxMin: MAX_VIDEO_MIN })
         }
       }
 
@@ -227,7 +229,7 @@ export default {
         const name = (res.data?.title || title || 'video').replace(/[^\w\s.-]/g, '').slice(0, 60) || 'video'
         await sendVideoFile(sock, msg, got.file, { caption: `🎬 *${res.data?.title || title}*\n${mb(got.size)} MB`, fileName: `${name}.mp4` })
       } catch (e) {
-        return replyDlError({ msg, sock, e, url: url, maxSec: MAX_VIDEO_SEC, maxMin: MAX_VIDEO_MIN })
+        return replyDlError({ msg, sock, e, url: url, maxSec: 0, maxMin: MAX_VIDEO_MIN })
       }
     } catch (e) {
       console.error('[ytvideo]', e)
