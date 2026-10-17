@@ -1,7 +1,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { voiceTranslate, vtFormat, vtCleanup, vtErrorText, vtUsage, parseVoiceArgs, vtTranslate, vtLangName, vtLangList, VT_MAX_SEC } from '../../lib/voice-translate-core.js'
+import { vtPronounce, voiceTranslate, vtFormat, vtCleanup, vtErrorText, vtUsage, parseVoiceArgs, vtTranslate, vtLangName, vtLangList, VT_MAX_SEC } from '../../lib/voice-translate-core.js'
 
 // traducir / traduce / tr / translate
 // • Respondiendo a una nota de voz, audio o video: lo pasa a texto, lo traduce y regresa texto + nota de voz.
@@ -39,7 +39,8 @@ export default {
           target = 'es'
           if (String(r.src || '').startsWith('es')) { r = await vtTranslate(text, 'en', 'es'); target = 'en' }
         }
-        return sock.sendMessage(msg.chat, { text: `🌐 *${vtLangName(target)}:*\n${r.text}` }, { quoted: msg })
+        const pron = await vtPronounce(r.text, target).catch(() => null)
+        return sock.sendMessage(msg.chat, { text: `🌐 *${vtLangName(target)}:*\n${r.text}` + (pron ? `\n\n🗣️ *Cómo se pronuncia:*\n${pron}` : '') }, { quoted: msg })
       } catch (e) {
         return msg.reply(vtErrorText(e))
       }
