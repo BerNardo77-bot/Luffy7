@@ -69,7 +69,8 @@ export default {
       console.log(`[traducir] ${res.source}→${res.target} ${Math.round(res.seconds)}s`)
     } catch (e) {
       console.error('[traducir]', e?.message || e)
-      await msg.reply(vtErrorText(e) + `\n\n✎ Tip: si el idioma salió mal, dile cuál es, por ejemplo: ${P}traducir pt>es`).catch(() => {})
+      const et = vtErrorText(e)
+      await msg.reply(et.startsWith('🎙️') ? et : et + `\n\n✎ Tip: si el idioma salió mal, dile cuál es, por ejemplo: ${P}traducir es>en o ${P}traducir pt>es`).catch(() => {})
     } finally {
       vtCleanup(res?.dir)
       vtCleanup(dir)
