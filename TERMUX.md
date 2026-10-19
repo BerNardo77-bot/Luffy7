@@ -268,3 +268,13 @@ No uses curl a raw.githubusercontent.com (429). Actualiza solo con git pull.
 - Si falla, el bot dice el motivo real (por ejemplo: video *en revisión*, *privado* o *eliminado*). Esos no se pueden bajar con nada.
 - yt-dlp avisa "no impersonate target": es normal. `pip install curl_cffi` casi nunca compila en Termux (no hay versión para Android); no hace falta, tikwm sirve de respaldo.
 - Mantén yt-dlp al día: `pkg upgrade yt-dlp`.
+
+## Traducir imágenes (OCR)
+
+`tr` también lee el texto de fotos y capturas. Para que sea rápido y sin límites instala tesseract una vez:
+
+```bash
+pkg install tesseract
+```
+
+Los idiomas (español e inglés primero) se bajan solos la primera vez a `~/.cache/tessdata-fast`. Sin tesseract funciona igual con OCR.space (gratis, con límite).
