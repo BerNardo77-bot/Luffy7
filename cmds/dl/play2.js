@@ -1,6 +1,6 @@
 import { replyDlError } from '../../lib/oversize.js'
 import fetch from 'node-fetch'
-import { splitVideo, cleanParts, partsFor, maxPartsFor, bigWarning } from '../../lib/video-split.js'
+import { splitVideoEach, MAX_SPLIT_PARTS, partsFor, bigWarning } from '../../lib/video-split.js'
 import { prefijoActual } from '../../lib/prefijo.js';
 import { miniaturaYouTube } from '../../lib/ytMiniatura.js';
 import { MAX_VIDEO_MIN, MAX_VIDEO_SEC } from '../../lib/limits.js';
@@ -193,16 +193,18 @@ export default {
         if (got.size > MAX_FILE_BYTES) {
           // Más grande que un documento de WhatsApp: partes por tiempo, misma calidad
           await msg.reply(`《✧》 El video pesa ${mb(got.size)} MB (límite ${mb(MAX_FILE_BYTES)} MB). Lo parto en ${partsFor(got.size, MAX_FILE_BYTES)} partes, sin bajar la calidad…`).catch(() => {})
-          let parts = null
           try {
-            parts = await splitVideo(got.file, MAX_FILE_BYTES, { title: got.title || title || 'video', maxParts: maxPartsFor(MAX_FILE_BYTES) + 3 })
-            const warn = bigWarning(got.size, parts.length)
+            let total = 0
+            await splitVideoEach(got.file, MAX_FILE_BYTES, {
+              title: got.title || title || 'video', maxParts: MAX_SPLIT_PARTS + 3,
+              onPart: async (p) => { total = p.total; await sendVideoFile(sock, msg, p.file, { caption: `${cap}\n📦 Parte ${p.index}/${p.total}`, fileName: p.name }) }
+            })
+            const warn = bigWarning(got.size, total)
             if (warn) await msg.reply(warn).catch(() => {})
-            for (const p of parts) await sendVideoFile(sock, msg, p.file, { caption: `${cap}\n📦 Parte ${p.index} de ${p.total}`, fileName: p.name })
           } catch (e) {
             console.error('[ytvideo] split', e?.message || e)
             await msg.reply(`《✧》 No pude partir el video (${String(e?.message || e).slice(0, 120)}).\n🔗 ${url}`).catch(() => {})
-          } finally { cleanParts(parts); rmQuiet(got.file) }
+          } finally { rmQuiet(got.file) }
           return
         }
         if (got.size > 64 * 1024 * 1024) await msg.reply(`《✧》 Pesa ${mb(got.size)} MB; lo mando como *documento* para no perder calidad…`).catch(() => {})
