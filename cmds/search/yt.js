@@ -174,7 +174,15 @@ export default {
         else last = `el canal @${h.handle} no tiene videos${h.words ? ` con “${h.words}”` : ''}`
       } catch (e) { last = `no pude abrir el canal @${h.handle}: ${String(e?.stderr || e?.message || e).split('\n').find((l) => /ERROR/.test(l)) || ''}`.slice(0, 160) }
     }
-    // Con filtro de duración se usa yt-dlp (trae duración exacta y más resultados)
+    // Búsqueda propia con yt-dlp primero (gratis, sin saldo); la API externa queda solo de respaldo
+    if (!list) {
+      try {
+        const l = await ytdlpSearch(query, filtro.active ? 40 : 15)
+        if (l?.length) list = l
+      } catch (e) {
+        console.error('[ytsearch] yt-dlp:', String(e?.message || e).slice(0, 160))
+      }
+    }
     if (!list && !filtro.active) {
       for (const key of apiKeys()) {
         try {
@@ -183,7 +191,8 @@ export default {
           const json = await res.json().catch(() => ({}))
           const l = json?.result || json?.data || []
           if (!json?.status || !Array.isArray(l) || !l.length) {
-            last = (res.status === 429 || json?.code === 429) ? 'alyacore sin saldo (429)' : (json?.message || last)
+            // "se acabó tu saldo" y límites de la API: solo al log, no al usuario
+            console.error('[ytsearch] API:', res.status, json?.message || 'sin resultados')
             continue
           }
           // fuera canales/listas (sin id de video)
@@ -194,13 +203,6 @@ export default {
         } catch (e) {
           last = e.message || last
         }
-      }
-    }
-    if (!list) {
-      try {
-        list = await ytdlpSearch(query, filtro.active ? 40 : 15)
-      } catch (e) {
-        last += ` · yt-dlp: ${String(e?.message || e).slice(0, 120)}`
       }
     }
     let top = (list || []).filter((v) => passes(resultSeconds(v), filtro)).slice(0, MAX_RESULTADOS)
