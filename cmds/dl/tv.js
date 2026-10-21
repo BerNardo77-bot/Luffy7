@@ -1,37 +1,23 @@
 import fs from 'fs'
 import os from 'os'
 import { savePick, readPick, bareNumber } from '../../lib/nsfw-pick.js'
-import { searchChannels, probeStream, recordStream, isStreamUrl, chanLine, TV_DURS, TV_MAX_MIN } from '../../lib/tv-core.js'
+import { searchChannels, probeStream, recordStream, isStreamUrl, chanLine, logosFor, logoJpeg, TV_DURS, TV_MAX_MIN } from '../../lib/tv-core.js'
 import { splitVideoEach, partsFor, freeDisk, MAX_TOTAL_BYTES, MAX_SPLIT_PARTS, bigWarning } from '../../lib/video-split.js'
 
 // tv <canal | link .m3u8/rtmp> → elegir canal → elegir minutos (5-60) → video grabado con ffmpeg
 const SITE_CH = 'tv-canal'
 const SITE_DUR = 'tv-dur'
-// Partes de la grabación: WhatsApp rechaza (error 500 "ack media") subidas cerca de 2 GB desde el teléfono.
-// Por defecto 1000 MB por parte (TV_PART_MB lo cambia, máx. 1950).
-const MAX_FILE = Math.min(Math.max(Number(process.env.TV_PART_MB) || 1000, 50), 1950) * 1024 * 1024
+const MAX_FILE = Math.max(Number(process.env.MAX_FILE_MB) || 0, 1950) * 1024 * 1024 // documento de WhatsApp ~2 GB
 const MAX_VIDEO = 64 * 1024 * 1024 // más que esto va como documento
 const jobs = new Set()
 const mb = (b) => (b / 1048576).toFixed(1)
 
-async function sendOnce(sock, msg, file, { caption, fileName }) {
+async function sendVid(sock, msg, file, { caption, fileName }) {
   const size = fs.statSync(file).size
   if (size <= MAX_VIDEO) {
-    try { await sock.sendMessage(msg.chat, { video: { url: file }, mimetype: 'video/mp4', fileName, caption }, { quoted: msg }); return } catch (e) { console.error('[tv] video→documento', e?.message || e) }
+    try { await sock.sendMessage(msg.chat, { video: { url: file }, mimetype: 'video/mp4', fileName, caption, ...th }, { quoted: msg }); return } catch (e) { console.error('[tv] video→documento', e?.message || e) }
   }
-  await sock.sendMessage(msg.chat, { document: { url: file }, mimetype: 'video/mp4', fileName, caption: `${caption}\n(${mb(size)} MB, documento)` }, { quoted: msg })
-}
-
-// Usa el socket actual (si WhatsApp reconectó, el viejo ya no sirve). Un fallo reintenta 1 vez tras 30 s
-// y luego se rinde con un aviso: nunca deja escapar el error (no debe tumbar ni reiniciar la sesión).
-async function sendVid(sock, msg, file, opts) {
-  for (let i = 0; i < 2; i++) {
-    try { await sendOnce(global.sock || sock, msg, file, opts); return true } catch (e) {
-      console.error('[tv] envío falló', i + 1, e?.message || e)
-      if (i === 0) await new Promise(r => setTimeout(r, 30000))
-    }
-  }
-  return false
+  await sock.sendMessage(msg.chat, { document: { url: file }, mimetype: 'video/mp4', fileName, caption: `${caption}\n(${mb(size)} MB, documento)`, ...th }, { quoted: msg })
 }
 
 async function offer(msg, ch) {
@@ -61,23 +47,21 @@ async function grabar(msg, sock, ch, min) {
     })
     const got = `${Math.floor(rec.seconds / 60)}:${String(rec.seconds % 60).padStart(2, '0')}`
     const cap = `📺 *${ch.title}* · ${got} · ${mb(rec.size)} MB`
+    const thumb = await logoJpeg(ch.logo, 160).catch(() => null)
     const notes = [rec.seconds < min * 60 - 30 ? `⚠️ La señal se cortó: solo se grabaron ${got}.` : '', rec.cut ? '⚠️ Se detuvo por falta de espacio.' : '', rec.reencoded ? 'ℹ️ Se recodificó (la señal no se podía copiar tal cual).' : ''].filter(Boolean)
     if (rec.size > MAX_FILE) {
       const n = partsFor(rec.size, MAX_FILE)
-      await msg.reply(`《✧》 Pesa ${mb(rec.size)} MB: te lo mando en ${n} partes, sin bajar la calidad…`).catch(() => {})
+      await msg.reply(`《✧》 Pesa ${mb(rec.size)} MB: te lo mando en ${n} partes, sin bajar la calidad…`)
       let total = 0
-      await splitVideoEach(rec.file, MAX_FILE, { title: ch.title, maxParts: MAX_SPLIT_PARTS + 3, onPart: async (p) => {
-        total = p.total
-        if (!await sendVid(sock, msg, p.file, { caption: `${cap}\n📦 Parte ${p.index}/${p.total}`, fileName: p.name })) throw new Error(`WhatsApp no aceptó la parte ${p.index}/${p.total}`)
-      } })
+      await splitVideoEach(rec.file, MAX_FILE, { title: ch.title, maxParts: MAX_SPLIT_PARTS + 3, onPart: async (p) => { total = p.total; await sendVid(sock, msg, p.file, { caption: `${cap}\n📦 Parte ${p.index}/${p.total}`, fileName: p.name, thumb }) } })
       const warn = bigWarning(rec.size, total)
       if (warn) notes.push(warn)
     } else {
-      if (!await sendVid(sock, msg, rec.file, { caption: cap, fileName: rec.name })) throw new Error('WhatsApp no aceptó el video')
+      await sendVid(sock, msg, rec.file, { caption: cap, fileName: rec.name, thumb })
     }
     if (notes.length) await msg.reply(notes.join('\n')).catch(() => {})
   } catch (e) {
-    await (global.sock || sock).sendMessage(msg.chat, { text: `《✧》 No pude terminar: ${String(e?.message || e).slice(0, 250)}` }).catch(() => {})
+    await msg.reply(`《✧》 No pude grabar: ${String(e?.message || e).slice(0, 250)}`).catch(() => {})
   } finally {
     if (rec?.dir) fs.rmSync(rec.dir, { recursive: true, force: true })
     jobs.delete(key)
@@ -104,6 +88,14 @@ export async function runTv({ msg, sock, args, text, usedPrefix }) {
   try { items = await searchChannels(q, { limit: 10 }) } catch (e) { console.error('[tv]', e?.message || e) }
   if (!items.length) return msg.reply(`《✧》 No encontré canales con "${q.slice(0, 60)}". Prueba otro nombre, agrega el país (ej: ${P}tv antena 3 es) o pega el link directo .m3u8.`)
   savePick(msg.chat, { msg, sender: msg.sender, site: SITE_CH, items, maxItems: 10 })
+  // Logos como en ytsearch: cada canal en su mensaje con foto. Si un logo falla, ese canal va solo en la lista de texto.
+  try {
+    const logos = await logosFor(items, 320)
+    for (let i = 0; i < items.length; i++) {
+      if (!logos[i]) continue
+      try { await (global.sock || sock).sendMessage(msg.chat, { image: logos[i], mimetype: 'image/jpeg', caption: chanLine(items[i], i) }, { quoted: msg }) } catch (e) { console.error('[tv] logo', e?.message || e) }
+    }
+  } catch {}
   return msg.reply(`📺 *Canales encontrados:*\n${items.map(chanLine).join('\n')}\n\nResponde el número (vale 5 min).`)
 }
 
