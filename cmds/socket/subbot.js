@@ -155,13 +155,8 @@ export async function startSubBot(
           }, 3000);
         } else {
           console.log(
-            chalk.gray(`[ ✿  ]  SUB-BOT ${botId} Falló tras 3 intentos. Eliminando sesión.`),
+            chalk.gray(`[ ✿  ]  SUB-BOT ${botId} Falló tras 3 intentos (${reason}). No se borró nada; dejo de reintentar. Vincúlalo de nuevo si hace falta.`),
           );
-          try {
-            fs.rmSync(sessionFolder, { recursive: true, force: true });
-          } catch (e) {
-            console.error(`[ ✿  ] No se pudo eliminar la carpeta ${sessionFolder}:`, e);
-          }
           delete reintentos[botId];
         }
         return;

@@ -105,20 +105,18 @@ async function initDB() {
   }
 }
 
-function clearSession() {
-  try {
-    const sessionDir = SESSION_OWNER;
-    if (!fs.existsSync(sessionDir)) return;
-    for (const file of fs.readdirSync(sessionDir)) {
-      try { fs.unlinkSync(path.join(sessionDir, file)); } catch {}
-    }
-    log.warn('Sesión del principal eliminada — reiniciando para vincular de nuevo...');
-  } catch (e) {
-    log.error(`clearSession → ${e?.message || e}`);
-  }
+// NUNCA se borra Sessions ni creds automáticamente (regla del dueño). Solo se avisa.
+function sessionClosedNotice(reason) {
+  log.warn(`WhatsApp cerró la sesión (${reason}). No se borró nada. Si el bot no vuelve a conectar, vincula de nuevo con el código de 8 letras: CTRL+C y luego  node index.js --relink`);
 }
 
 let opcion;
+// Revincular a mano (solo si tú lo pides): node index.js --relink  → la sesión vieja se GUARDA en Sessions/Owner-respaldo-<fecha>
+if (process.argv.includes('--relink') && fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
+  const bak = SESSION_OWNER + '-respaldo-' + new Date().toISOString().replace(/[:.]/g, '-')
+  try { fs.renameSync(SESSION_OWNER, bak); fs.mkdirSync(SESSION_OWNER, { recursive: true }); console.log(chalk.yellow(`[ ✿ ] Sesión anterior guardada en ${bak}. Vamos a vincular de nuevo.`)) } catch (e) { console.log(chalk.red('[ ✿ ] No pude mover la sesión:'), e?.message || e) }
+}
+let halfLinked = false;
 // Sesión a medias: creds.json existe pero WhatsApp nunca confirmó el vínculo (registered=false).
 // Antes el bot no pedía código ni QR y se quedaba en "Tiempo de conexión agotado" para siempre.
 try {
@@ -126,9 +124,8 @@ try {
   if (fs.existsSync(cp)) {
     const c = JSON.parse(fs.readFileSync(cp, 'utf8'))
     if (!c?.registered && !c?.me?.id) {
-      console.log(chalk.yellow('[ ✿ ] La sesión guardada quedó a medias (sin vincular). Se borra para vincular de nuevo.'))
-      fs.rmSync(SESSION_OWNER, { recursive: true, force: true })
-      fs.mkdirSync(SESSION_OWNER, { recursive: true })
+      console.log(chalk.yellow('[ ✿ ] La sesión guardada quedó a medias (sin vincular). No se borra; te pido vincular otra vez.'))
+      halfLinked = true
     }
   }
 } catch (e) { console.log(chalk.yellow('[ ✿ ] No pude leer creds.json:'), e?.message || e) }
@@ -149,7 +146,7 @@ if (isCloud && !fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
     phoneInput = readlineSync.question("");
     phoneNumber = normalizePhone(phoneInput);
   }
-} else if (!fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
+} else if (halfLinked || !fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
     opcion = readlineSync.question(`╭${lineM}  
 ┊ ${chalk.blueBright('╭┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}
 ┊ ${chalk.blueBright('┊')} ${chalk.blue.bgBlue.bold.cyan('METODO DE VINCULACION')}
@@ -176,6 +173,7 @@ if (isCloud && !fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
 }
 
 let bootTime = Date.now();
+let loggedOutTries = 0;
 const handledIds = new Set(); // ids de mensajes ya procesados (sobrevive a reconexiones)
 let reconexion = 0;
 let botReady = false;
@@ -297,6 +295,7 @@ export async function startBot() {
     if (connection === "open") {
       bootTime = Date.now();
       reconexion = 0;
+      loggedOutTries = 0;
       isRestarting = false;
       // db.getSettings es síncrono: no lleva .catch (eso tumbaba el bot al conectar)
       let botSets = null
@@ -316,11 +315,14 @@ export async function startBot() {
     if (connection === "close") {
       const reason = lastDisconnect?.error?.output?.statusCode || 0;
       if ([DisconnectReason.loggedOut, DisconnectReason.forbidden, DisconnectReason.multideviceMismatch].includes(reason)) {
-        log.warn(`Principal desvinculado (${reason}) — limpiando sesión y reiniciando...`);
+        sessionClosedNotice(reason);
         botReady = false;
         isRestarting = false;
-        clearSession();
-        process.exit(1);
+        loggedOutTries = (loggedOutTries || 0) + 1;
+        // Sin bucle rápido: reintenta cada 5 min (no borra nada); tras 6 intentos (~30 min) se detiene limpio.
+        if (loggedOutTries > 6) { log.error('Sigo sin sesión válida. Me detengo. Vincula de nuevo con: node index.js --relink'); process.exit(0); }
+        setTimeout(startBot, 5 * 60 * 1000);
+        return;
       }
       if (reason === DisconnectReason.connectionReplaced) {
         log.warn("Conexión reemplazada — cerrá la otra sesión antes de reconectar.");
