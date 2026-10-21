@@ -2,6 +2,8 @@ import fs from 'fs'
 import { savePick, readPick, bareNumber } from '../../lib/nsfw-pick.js'
 import { liveTarget, tiktokTarget, liveInfo, recordLive, vlcSteps, ipNote, MAX_LIVE_MIN } from '../../lib/live-core.js'
 import { makeThumb } from '../../lib/audio-tags.js'
+import { isDirectStream } from '../../lib/tv-core.js'
+import { runTv } from './tv.js'
 
 // envivo <link o @canal> → link directo (VLC) + opción de grabar 5/10/15/30 min en MP3
 const SITE = 'envivo-dur'
@@ -32,6 +34,8 @@ export default {
   run: async ({ msg, sock, args, text, usedPrefix }) => {
     const P = usedPrefix || '$'
     const q = (text || args.join(' ')).trim()
+    // Link directo .m3u8/rtmp (como en VLC) → grabación de TV en video (tv)
+    if (isDirectStream(q.split(/\s+/)[0])) return runTv({ msg, sock, args, text, usedPrefix })
     const url = (await tiktokTarget(q)) || liveTarget(q)
     if (!url) return msg.reply(`✎ Uso: ${P}envivo <link de YouTube o @canal>\nEjemplos: ${P}envivo @MILENIO · ${P}envivo @LofiGirl (YouTube)\nTikTok: ${P}envivo tiktok @usuario o el link de TikTok\nTe doy el link para verlo en VLC. Agrega minutos para grabar el audio: ${P}envivo @MILENIO 10 (máx. ${MAX_LIVE_MIN}).`)
     const min = Number((q.match(/\s(\d{1,3})\s*(m|min|minutos?)?\s*$/i) || [])[1]) || 0
