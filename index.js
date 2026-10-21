@@ -176,6 +176,7 @@ if (isCloud && !fs.existsSync(path.join(SESSION_OWNER, 'creds.json'))) {
 }
 
 let bootTime = Date.now();
+const handledIds = new Set(); // ids de mensajes ya procesados (sobrevive a reconexiones)
 let reconexion = 0;
 let botReady = false;
 let isRestarting = false;
@@ -269,6 +270,11 @@ export async function startBot() {
       try {
         if (!msg?.message || msg.key?.remoteJid === "status@broadcast") continue;
         if ((msg.messageTimestamp * 1000) < bootTime - 15_000) continue;
+        // Tras reconectar WhatsApp puede reenviar mensajes ya atendidos: cada id se procesa una sola vez
+        const did = (msg.key.remoteJid || '') + ':' + (msg.key.id || '')
+        if (handledIds.has(did)) continue
+        handledIds.add(did)
+        if (handledIds.size > 3000) handledIds.delete(handledIds.values().next().value)
         if (msg.message.ephemeralMessage) msg.message = msg.message.ephemeralMessage.message;
         const m = await smsg(sock, msg);
         if (typeof handler === 'function') handler(sock, m, messages).catch((err) => console.error('[ ✿  ]  Main Owner »', err?.message));
@@ -325,12 +331,10 @@ export async function startBot() {
       // 408 (sin red / versión vieja) no es sesión dañada: no borrar la sesión, solo esperar y reintentar
       if (reason === DisconnectReason.timedOut && reconexion > retriesLimit) reconexion = retriesLimit;
       if (reconexion > retriesLimit) {
-        log.error(`Demasiados reintentos (${retriesLimit}) — sesión posiblemente corrupta, limpiando...`);
-        botReady = false;
-        reconexion = 0;
-        isRestarting = false;
-        clearSession();
-        process.exit(1);
+        // Antes aquí se borraba la sesión. Un error de red/stream (500, 408, 428…) NO es sesión dañada:
+        // nunca borrar Sessions por esto; solo seguir reintentando con espera máxima.
+        log.warn(`Muchos reintentos (${reconexion}); sigo intentando sin borrar la sesión...`);
+        reconexion = retriesLimit;
       }
       const delay = Math.min(3000 * reconexion, 30000);
       const reasonMessages = {
@@ -338,7 +342,7 @@ export async function startBot() {
         [DisconnectReason.connectionClosed]: "Conexión cerrada, intentando reconectarse...",
         [DisconnectReason.restartRequired]: "Es necesario reiniciar...",
         [DisconnectReason.timedOut]: "Tiempo de conexión agotado, intentando reconectarse...",
-        [DisconnectReason.badSession]: "Sesión inválida, limpiando y reconectando...",
+        [DisconnectReason.badSession]: "Error de conexión con WhatsApp (500, p. ej. al subir un archivo). La sesión NO se borra; reconectando...",
       };
       const err = lastDisconnect?.error
       const det = [err?.message, err?.data && JSON.stringify(err.data).slice(0, 80)].filter(Boolean).join(' · ').replace(/\s+/g, ' ').slice(0, 160)
