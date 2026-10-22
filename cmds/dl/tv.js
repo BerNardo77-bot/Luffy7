@@ -25,7 +25,7 @@ async function offer(msg, ch) {
   const p = await probeStream(ch.url, ch.headers)
   if (!p.ok) return msg.reply(`《✧》 ${ch.title}: ${p.reason}`)
   savePick(msg.chat, { msg, sender: msg.sender, site: SITE_DUR, items: TV_DURS.map(m => ({ ...ch, min: m })), maxItems: TV_DURS.length })
-  return msg.reply(`📺 *${ch.title}* está al aire${p.height ? ` (${p.height}p)` : ''}${p.video ? '' : ' (solo audio)'}.\n¿Cuántos minutos grabo?\n${TV_DURS.map((m, i) => `${i + 1}) ${m} min`).join('\n')}\nResponde el número (vale 5 min).`)
+  return msg.reply(`📺 *${ch.title}* está al aire${p.height ? ` (${p.height}p)` : ''}${p.video ? '' : ' (solo audio)'}.\n¿Cuántos minutos grabo?\n${TV_DURS.map((m, i) => `${i + 1}) ${m} min`).join('\n')}\nResponde el número de la opción, o escribe los minutos que quieras (10 a 300). Vale 5 min.`)
 }
 
 async function grabar(msg, sock, ch, min) {
@@ -36,13 +36,13 @@ async function grabar(msg, sock, ch, min) {
   jobs.add(key)
   let rec = null
   try {
-    await msg.reply(`⏺ Grabando ${min} min de *${ch.title}*… te aviso cada 5 min y al terminar.`)
+    await msg.reply(`⏺ Grabando ${min} min de *${ch.title}*… te aviso cada ${min > 60 ? 15 : 5} min y al terminar.`)
     let lastMin = 0
     rec = await recordStream(ch.url, min * 60, {
       headers: ch.headers, title: ch.title, maxBytes,
       onProgress: (s, b) => {
         const m = Math.floor(s / 60)
-        if (m >= lastMin + 5 && m < min) { lastMin = m; msg.reply(`⏺ ${ch.title}: ${m}/${min} min · ${mb(b)} MB`).catch(() => {}) }
+        if (m >= lastMin + (min > 60 ? 15 : 5) && m < min) { lastMin = m; msg.reply(`⏺ ${ch.title}: ${m}/${min} min · ${mb(b)} MB`).catch(() => {}) }
       }
     })
     const got = `${Math.floor(rec.seconds / 60)}:${String(rec.seconds % 60).padStart(2, '0')}`
@@ -71,7 +71,7 @@ async function grabar(msg, sock, ch, min) {
 export async function runTv({ msg, sock, args, text, usedPrefix }) {
   const P = usedPrefix || '$'
   const q = (text || (args || []).join(' ')).trim()
-  if (!q) return msg.reply(`✎ Uso:\n${P}tv <nombre del canal> — busca en listas públicas (iptv-org). Ej: ${P}tv milenio · ${P}tv canal 22 · ${P}tv antena 3 es\n${P}tv <link> — link directo .m3u8, http o rtmp (como en VLC)\nLuego eliges canal y minutos (5, 10, 15, 30 o 60) y te mando el video.`)
+  if (!q) return msg.reply(`✎ Uso:\n${P}tv <nombre del canal> — busca en listas públicas (iptv-org). Ej: ${P}tv milenio · ${P}tv canal 22 · ${P}tv antena 3 es\n${P}tv <link> — link directo .m3u8, http o rtmp (como en VLC)\nLuego eliges canal y minutos (5 a 300 = 5 horas) y te mando el video.\nCon link puedes poner los minutos: ${P}tv <link> 120`)
   const [first, ...rest] = q.split(/\s+/)
   if (isStreamUrl(first)) {
     const ch = { url: first, headers: {}, title: 'TV en vivo' }
@@ -79,7 +79,8 @@ export async function runTv({ msg, sock, args, text, usedPrefix }) {
     if (min) {
       const p = await probeStream(first)
       if (!p.ok) return msg.reply('《✧》 ' + p.reason)
-      return grabar(msg, sock, ch, Math.min(min, TV_MAX_MIN))
+      grabar(msg, sock, ch, Math.min(min, TV_MAX_MIN)).catch(() => {}) // sin await: no bloquea al bot durante horas
+      return
     }
     return offer(msg, ch)
   }
@@ -110,6 +111,9 @@ export async function before({ msg, sock }) {
   if (n == null) return false
   const hit = readPick(msg)
   if (!hit || (hit.site !== SITE_CH && hit.site !== SITE_DUR)) return false
+  // Duración: número de opción (1-9) o minutos directos (10-300)
+  if (hit.site === SITE_DUR && n >= 10 && n <= TV_MAX_MIN) { grabar(msg, sock, { ...hit.items[0], min: n }, n).catch(() => {}); return true }
+  if (hit.site === SITE_DUR && n > TV_MAX_MIN) { await msg.reply(`Máximo ${TV_MAX_MIN} min (5 horas).`); return true }
   if (n < 1 || n > hit.items.length) { await msg.reply(`Elige 1-${hit.items.length}.`); return true }
   const it = hit.items[n - 1]
   if (hit.site === SITE_CH) offer(msg, it).catch(() => {})
