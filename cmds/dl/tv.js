@@ -65,7 +65,7 @@ async function grabar(msg, sock, ch, min, P = '$') {
     await say(sock, msg, `⏺ Grabando ${label(min)} de *${ch.title}*… te aviso cada ${every} min y al terminar.\nPara cancelar: *${P}tvcancel* (o escribe *cancelar*)`)
     let lastMin = 0
     rec = await recordStream(ch.url, min * 60, {
-      headers: ch.headers, title: ch.title, maxBytes, signal: ac.signal,
+      headers: ch.headers, alts: ch.alts || [], title: ch.title, maxBytes, signal: ac.signal,
       onProgress: (s, b) => {
         if (ac.signal.aborted) return
         const m = Math.floor(s / 60)
@@ -76,7 +76,7 @@ async function grabar(msg, sock, ch, min, P = '$') {
     const got = `${Math.floor(rec.seconds / 60)}:${String(rec.seconds % 60).padStart(2, '0')}`
     const cap = `📺 *${ch.title}* · ${got} · ${mb(rec.size)} MB`
     const thumb = await logoJpeg(ch.logo, 160).catch(() => null)
-    const notes = [rec.seconds < min * 60 - 30 ? `⚠️ La señal se cortó: solo se grabaron ${got}.` : '', rec.cut ? '⚠️ Se detuvo por falta de espacio.' : '', rec.reencoded ? 'ℹ️ Se recodificó (la señal no se podía copiar tal cual).' : ''].filter(Boolean)
+    const notes = [rec.seconds < min * 60 - 30 ? `⚠️ La señal se cortó: solo se grabaron ${got}.` : '', rec.cut ? '⚠️ Se detuvo por falta de espacio.' : '', rec.reencoded ? 'ℹ️ Se recodificó (la señal no se podía copiar tal cual).' : '', rec.pieces > 1 ? `ℹ️ La señal se reconectó ${rec.pieces - 1} vez/veces; uní todo en un solo video.` : ''].filter(Boolean)
     if (rec.size > MAX_FILE) {
       const n = partsFor(rec.size, MAX_FILE)
       await say(sock, msg, `《✧》 Pesa ${mb(rec.size)} MB: te lo mando en ${n} partes, sin bajar la calidad…`)
