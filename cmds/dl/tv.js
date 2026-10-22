@@ -1,3 +1,4 @@
+import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import { savePick, readPick, bareNumber } from '../../lib/nsfw-pick.js'
@@ -31,7 +32,14 @@ async function sendOnce(sock, msg, file, { caption, fileName, thumb }) {
 // y luego se rinde con un aviso: nunca deja escapar el error (no debe tumbar ni reiniciar la sesión).
 async function sendVid(sock, msg, file, opts) {
   for (let i = 0; i < 2; i++) {
-    try { await sendOnce(global.sock || sock, msg, file, opts); return true } catch (e) {
+    const t0 = Date.now(), size = fs.statSync(file).size
+    // Tope de espera para que un envío colgado no deje el comando mudo para siempre
+    const limit = 180000 + Math.ceil(size / 1048576) * 4000
+    console.log(`[tv] enviando ${path.basename(file)} (${mb(size)} MB)…`)
+    try {
+      await Promise.race([sendOnce(global.sock || sock, msg, file, opts), new Promise((_, rej) => setTimeout(() => rej(new Error(`sin respuesta de WhatsApp en ${Math.round(limit / 1000)} s`)), limit).unref?.())])
+      console.log(`[tv] enviado en ${Math.round((Date.now() - t0) / 1000)} s`); return true
+    } catch (e) {
       console.error('[tv] envío falló', i + 1, e?.message || e)
       if (i === 0) await new Promise(r => setTimeout(r, 30000))
     }
