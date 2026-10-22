@@ -143,6 +143,7 @@ export async function runTv({ msg, sock, args, text, usedPrefix, command, isOwne
   let total = 0
   try { const r = await searchLive(q, { limit: 10, pool: 30 }); items = r.items; total = r.total } catch (e) { console.error('[tv]', e?.message || e) }
   if (!items.length && total) return msg.reply(`《✧》 Encontré ${total} canal(es) con "${q.slice(0, 60)}", pero ninguno está al aire ahora (o no responde desde el servidor). Prueba más tarde, otro nombre o el link directo .m3u8.`)
+  if (!items.length && total > 0) return msg.reply(`《✧》 Encontré ${total} canal(es) con "${q.slice(0, 60)}", pero ninguno está transmitiendo ahora (fuera del aire o bloqueado por país). Intenta más tarde, otro nombre, o pega el link directo .m3u8.`)
   if (!items.length) return msg.reply(`《✧》 No encontré canales con "${q.slice(0, 60)}". Prueba otro nombre, agrega el país (ej: ${P}tv antena 3 es) o pega el link directo .m3u8.`)
   savePick(msg.chat, { msg, sender: msg.sender, site: SITE_CH, items: items.map(it => ({ ...it, prefix: P })), maxItems: 10, ttlMs: PICK_TTL })
   // Logos como en ytsearch: cada canal en su mensaje con foto. Si un logo falla, ese canal va solo en la lista de texto.
