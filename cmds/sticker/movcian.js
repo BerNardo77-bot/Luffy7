@@ -16,6 +16,11 @@ const ITEMS = [
   ['10_nervioso', "Nervioso"],
   ['11_triste', "Triste"],
   ['12_guino', "¡Guiño!"],
+  ['13_entrecerrar', "Entrecerrando los ojos"],
+  ['14_lado_a_lado', "De lado a lado"],
+  ['15_latido', "Latiendo"],
+  ['16_brincando', "Brincando"],
+  ['17_vueltas', "Dando vueltas"],
 ]
 
 export default {
