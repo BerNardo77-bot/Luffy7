@@ -9,7 +9,7 @@ const ITEMS = [
   ['03_girando_diagonal', "Pensándolo bien"],
   ['04_clics', "Buscando..."],
   ['05_parpadeo', "¿Mande?"],
-  ['06_avanzando', "Avanzando poco a poco"],
+  ['06_avanzando', "Trabajando en eso"],
   ['07_pensando', "Pensando..."],
   ['08_dormido', "Tengo sueño"],
   ['09_sorprendido', "¡¿Qué?!"],
@@ -17,15 +17,15 @@ const ITEMS = [
   ['11_triste', "Triste"],
   ['12_guino', "¡Guiño!"],
   ['13_entrecerrar', "Entrecerrando los ojos"],
-  ['14_lado_a_lado', "De lado a lado"],
+  ['14_lado_a_lado', "Haciéndolo"],
   ['15_latido', "Latiendo"],
   ['16_brincando', "Brincando"],
-  ['17_vueltas', "Dando vueltas"],
+  ['17_vueltas', "Dándole vueltas al asunto"],
   ['18_sacandolo', "Sacándolo adelante"],
   ['19_vuelta', "Dando la vuelta"],
   ['20_estrella', "Grok Bot ⭐"],
   ['21_encargandose', "Encargándose"],
-  ['22_puntos', "Reflexionando"],
+  ['22_puntos', "Reflexionando al respecto"],
 ]
 
 export default {
