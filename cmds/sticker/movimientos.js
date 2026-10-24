@@ -18,7 +18,7 @@ const ITEMS = [
   ['12_guino', "¡Guiño!"],
   ['13_entrecerrar', "Entrecerrando los ojos"],
   ['14_lado_a_lado', "Haciéndolo"],
-  ['15_latido', "Latiendo"],
+  ['15_latido', "Encargándose"],
   ['16_brincando', "Brincando"],
   ['17_vueltas', "Dándole vueltas al asunto"],
   ['18_sacandolo', "Sacándolo adelante"],
