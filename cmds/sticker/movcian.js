@@ -25,6 +25,7 @@ const ITEMS = [
   ['19_vuelta', "Dando la vuelta"],
   ['20_estrella', "Grok Bot ⭐"],
   ['21_encargandose', "Encargándose"],
+  ['22_puntos', "Reflexionando"],
 ]
 
 export default {
