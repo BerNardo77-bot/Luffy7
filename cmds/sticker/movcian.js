@@ -4,28 +4,16 @@ import path from 'path'
 const DIR = path.resolve('assets/movimientos_cian')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const ITEMS = [
-  ['01_mirando', "Mirando..."],
-  ['02_girando', "¿Quién?"],
-  ['03_girando_diagonal', "Pensándolo bien"],
-  ['04_clics', "Buscando..."],
-  ['05_parpadeo', "¿Mande?"],
-  ['06_avanzando', "Trabajando en eso"],
-  ['07_pensando', "Pensando..."],
-  ['08_dormido', "Tengo sueño"],
-  ['09_sorprendido', "¡¿Qué?!"],
-  ['10_nervioso', "Nervioso"],
-  ['11_triste', "Triste"],
-  ['12_guino', "¡Guiño!"],
-  ['13_entrecerrar', "Entrecerrando los ojos"],
-  ['14_lado_a_lado', "Haciéndolo"],
-  ['15_latido', "Encargándose"],
-  ['16_brincando', "Brincando"],
-  ['17_vueltas', "Dándole vueltas al asunto"],
-  ['18_sacandolo', "Sacándolo adelante"],
-  ['19_vuelta', "Dando la vuelta"],
+  ['01_mirando', "Mirando alrededor"],
+  ['02_encogiendo', "Haciéndose pequeño"],
+  ['03_girando', "Girando"],
+  ['04_vuelta', "Dando la vuelta"],
+  ['05_parpadeo', "Parpadeando"],
+  ['06_mirando_arriba', "Mirando arriba"],
+  ['07_ladeando', "Ladeándose"],
+  ['08_volteando', "Volteando"],
+  ['09_puntos', "Reflexionando al respecto"],
   ['20_estrella', "Grok Bot ⭐"],
-  ['21_encargandose', "Encargándose"],
-  ['22_puntos', "Reflexionando al respecto"],
 ]
 
 export default {
