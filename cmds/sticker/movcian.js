@@ -21,6 +21,8 @@ const ITEMS = [
   ['15_latido', "Latiendo"],
   ['16_brincando', "Brincando"],
   ['17_vueltas', "Dando vueltas"],
+  ['18_sacandolo', "Sacándolo adelante"],
+  ['19_vuelta', "Dando la vuelta"],
 ]
 
 export default {
