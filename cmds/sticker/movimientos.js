@@ -24,6 +24,7 @@ const ITEMS = [
   ['18_sacandolo', "Sacándolo adelante"],
   ['19_vuelta', "Dando la vuelta"],
   ['20_estrella', "Grok Bot ⭐"],
+  ['21_encargandose', "Encargándose"],
 ]
 
 export default {
