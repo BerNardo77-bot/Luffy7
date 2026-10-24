@@ -1,32 +1,18 @@
-// movnube / movcuadro — los 22 movimientos de Grok Bot en forma de nube o cuadro (azul).
+// movnube / movcuadro — los 8 movimientos (sacados del video) de Grok Bot en forma de nube o cuadro (azul).
 // "x" manda cada movimiento como GIF listo para X (documento).
 import fs from 'fs'
 import path from 'path'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const ITEMS = [
-  ['01_mirando', "Mirando..."],
-  ['02_girando', "¿Quién?"],
-  ['03_girando_diagonal', "Pensándolo bien"],
-  ['04_clics', "Buscando..."],
-  ['05_parpadeo', "¿Mande?"],
-  ['06_avanzando', "Trabajando en eso"],
-  ['07_pensando', "Pensando..."],
-  ['08_dormido', "Tengo sueño"],
-  ['09_sorprendido', "¡¿Qué?!"],
-  ['10_nervioso', "Nervioso"],
-  ['11_triste', "Triste"],
-  ['12_guino', "¡Guiño!"],
-  ['13_entrecerrar', "Entrecerrando los ojos"],
-  ['14_lado_a_lado', "Haciéndolo"],
-  ['15_latido', "Encargándose"],
-  ['16_brincando', "Brincando"],
-  ['17_vueltas', "Dándole vueltas al asunto"],
-  ['18_sacandolo', "Sacándolo adelante"],
-  ['19_vuelta', "Dando la vuelta"],
-  ['20_original', "Avanzando poco a poco"],
-  ['21_encargandose', "Encargándose"],
-  ['22_puntos', "Reflexionando al respecto"],
+  ['01_avanzando', "Avanzando poco a poco"],
+  ['02_encogiendo', "Haciéndose pequeño"],
+  ['03_mirando_arriba', "Mirando arriba"],
+  ['04_girando', "Girando"],
+  ['05_mirando', "Mirando alrededor"],
+  ['06_ladeando', "Ladeándose"],
+  ['07_aplastando', "Aplastándose"],
+  ['08_ojitos', "Achicando los ojos"],
 ]
 const KIND = { movnube: 'nube', nube: 'nube', movimientosnube: 'nube', movcuadro: 'cuadro', cuadro: 'cuadro', movimientoscuadro: 'cuadro' }
 
