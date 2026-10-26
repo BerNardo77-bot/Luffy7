@@ -81,14 +81,19 @@ await db.updateChatUser(msg.chat, msg.sender, 'stats', tf.stats)
   }) : typeof pluginPrefix === 'string' ? [[new RegExp(strRegex(pluginPrefix)).exec(msg.text), new RegExp(strRegex(pluginPrefix))]] : [[null, null]];
   let match = matchs.find(p => p[0]) || null;
 
-  for (const p of (global.cmdsExecute ?? [])) {
-    if (p.type !== 'before') continue;
-    try {
-      if (await p.fn({ msg, sock, match, groupMetadata, participants, isAdmins, isBotAdmins, isOwner, __dirname: p.dirname })) return;
-    } catch (e) {
-      console.error(chalk.gray(`[ ✿ ] Error before-plugin ${p.key}: ${e.message}`));
+  // las elecciones (responder con número, etc.) también corren como "trabajo": se pueden cancelar y reanudar
+  const stopped = await runCommand({ sock, msg, command: '', usedPrefix: (Array.isArray(settings.prefijo) ? settings.prefijo[0] : typeof settings.prefijo === 'string' ? settings.prefijo : '') || '' }, async () => {
+    for (const p of (global.cmdsExecute ?? [])) {
+      if (p.type !== 'before') continue;
+      try {
+        if (await p.fn({ msg, sock, match, groupMetadata, participants, isAdmins, isBotAdmins, isOwner, __dirname: p.dirname })) return true;
+      } catch (e) {
+        console.error(chalk.gray(`[ ✿ ] Error before-plugin ${p.key}: ${e.message}`));
+      }
     }
-  }
+    return false;
+  });
+  if (stopped) return;
 
   if (!match) return;
   let usedPrefix = (match[0] || [])[0] || '';
@@ -238,7 +243,7 @@ try {
   await db.updateChatUser(msg.chat, msg.sender, 'stats', user.stats)
 
   // Cada comando corre en su propio trabajo: así se puede cancelar/pausar/continuar su descarga
-  await runCommand({ sock, msg, command, usedPrefix }, () => cmdData.run({ msg, sock, args, command, usedPrefix, text, groupMetadata, participants, isAdmins, isBotAdmins, isOwner, __dirname: global.plugins[cmdData.pluginKey]?.dirname }));
+  await runCommand({ sock, msg, command, usedPrefix, replay: msg.text }, () => cmdData.run({ msg, sock, args, command, usedPrefix, text, groupMetadata, participants, isAdmins, isBotAdmins, isOwner, __dirname: global.plugins[cmdData.pluginKey]?.dirname }));
 } catch (error) {
   console.log(error)
   return msg.reply(`${error}`)

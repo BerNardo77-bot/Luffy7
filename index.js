@@ -14,6 +14,7 @@ import path from "path";
 import readlineSync from "readline-sync";
 import { smsg, getCachedMeta, setCachedMeta } from "#serialize";
 import cmdsLoader from '#cmdsloader';
+import { resumePending } from './lib/dl-control-wa.js';
 import { startSubBot } from '#cmds/socket/subbot';
 import db from '#db';
 
@@ -306,6 +307,7 @@ export async function startBot() {
       log.success(`Conectado a: ${userName}`);
       if (!botReady) {
         botReady = true;
+        resumePending(sock, { handler, smsg }).catch((e) => console.error('[dl-resume]', e?.message));
         warmupGroups(sock);
       }
     }
