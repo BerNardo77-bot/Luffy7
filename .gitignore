@@ -5,3 +5,5 @@ database.json
 lib/system/tmp/
 .env
 tmp/
+
+pending-downloads.json*
