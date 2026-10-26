@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import gradient from 'gradient-string';
 import { getCachedMeta, setCachedMeta } from '#serialize';
+import { runCommand } from './lib/dl-control-wa.js';
 
 export default async (sock, msg) => {
 
@@ -236,7 +237,8 @@ try {
   user.stats[today].cmds++
   await db.updateChatUser(msg.chat, msg.sender, 'stats', user.stats)
 
-  await cmdData.run({ msg, sock, args, command, usedPrefix, text, groupMetadata, participants, isAdmins, isBotAdmins, isOwner, __dirname: global.plugins[cmdData.pluginKey]?.dirname });
+  // Cada comando corre en su propio trabajo: así se puede cancelar/pausar/continuar su descarga
+  await runCommand({ sock, msg, command, usedPrefix }, () => cmdData.run({ msg, sock, args, command, usedPrefix, text, groupMetadata, participants, isAdmins, isBotAdmins, isOwner, __dirname: global.plugins[cmdData.pluginKey]?.dirname }));
 } catch (error) {
   console.log(error)
   return msg.reply(`${error}`)

@@ -1,3 +1,5 @@
+// Primero: registra los procesos de descarga para poder cancelar/pausar ($cancelar, $pausar, $continuar)
+import './lib/dl-control.js';
 import "./settings.js";
 import "#db";
 import handler from '#handler';
