@@ -5,7 +5,8 @@ import { savePick, readPick, clearPick, bareNumber } from '../../lib/nsfw-pick.j
 import play2, { MAX_DURATION_SEC, parseDurationToSeconds } from '../dl/play2.js';
 import { MAX_VIDEO_MIN } from '../../lib/limits.js';
 import { parseDurationFilter, filterLabel, passes } from '../../lib/dur-filter.js';
-import { ytdlpSearch, fmtClock, parseYtHandle, ytdlpChannel } from '../../lib/mediadl.js';
+import { ytdlpSearch, fmtClock, ytHandleCandidates, ytdlpChannel } from '../../lib/mediadl.js';
+import { searchYoutubeMx } from '../../lib/yt-search-mx.js';
 
 const FALLBACK_KEY = 'LUFFY-FIX67'
 // Cuántos resultados se mandan (cada uno es un mensaje con su miniatura)
@@ -166,18 +167,27 @@ export default {
     let last = 'Sin resultados'
     let list = null
     let canal = ''
-    const h = parseYtHandle(query)
-    if (h) {
+    let h = null
+    let texto = query
+    const cands = ytHandleCandidates(query)
+    for (const c of cands) {
       try {
-        const r = await ytdlpChannel(h.handle, h.words, filtro.active ? 60 : 20)
-        if (r.list.length) { list = r.list; canal = r.channel }
-        else last = `el canal @${h.handle} no tiene videos${h.words ? ` con “${h.words}”` : ''}`
-      } catch (e) { last = `no pude abrir el canal @${h.handle}: ${String(e?.stderr || e?.message || e).split('\n').find((l) => /ERROR/.test(l)) || ''}`.slice(0, 160) }
+        const r = await ytdlpChannel(c.handle, c.words, filtro.active ? 60 : 20)
+        if (r.list.length) { list = r.list; canal = r.channel; h = c; break }
+      } catch (e) { console.error(`[ytsearch] canal @${c.handle}:`, String(e?.stderr || e?.message || e).split('\n').find((l) => /ERROR/.test(l)) || '') }
     }
-    // Búsqueda propia con yt-dlp primero (gratis, sin saldo); la API externa queda solo de respaldo
+    // Si el @canal no existe: búsqueda normal del texto (sin la @), nunca resultados al azar
+    if (cands.length && !list) texto = query.replace(/^@\s*/, '')
+    // Igual que AndrewWife: YouTube región MX / es-419 primero
+    if (!list && !filtro.active) {
+      try {
+        const l = await searchYoutubeMx(texto, MAX_RESULTADOS)
+        if (l?.length) list = l
+      } catch (e) { console.error('[ytsearch] YouTube MX:', String(e?.message || e).slice(0, 160)) }
+    }
     if (!list) {
       try {
-        const l = await ytdlpSearch(query, filtro.active ? 40 : 15)
+        const l = await ytdlpSearch(texto, filtro.active ? 40 : 15)
         if (l?.length) list = l
       } catch (e) {
         console.error('[ytsearch] yt-dlp:', String(e?.message || e).slice(0, 160))
@@ -186,7 +196,7 @@ export default {
     if (!list && !filtro.active) {
       for (const key of apiKeys()) {
         try {
-          const url = `${base}/search/yt?query=${encodeURIComponent(query)}&key=${encodeURIComponent(key)}`
+          const url = `${base}/search/yt?query=${encodeURIComponent(texto)}&key=${encodeURIComponent(key)}`
           const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
           const json = await res.json().catch(() => ({}))
           const l = json?.result || json?.data || []
@@ -207,7 +217,7 @@ export default {
     }
     let top = (list || []).filter((v) => passes(resultSeconds(v), filtro)).slice(0, MAX_RESULTADOS)
     if (!top.length) {
-      return msg.reply(`✎ No encontré videos${filtro.active ? ` ${filterLabel(filtro)}` : ''} para *${query}*.\n${last}`)
+      return msg.reply(`✎ No encontré videos${filtro.active ? ` ${filterLabel(filtro)}` : ''} para *${texto}*.\n${last}`)
     }
 
     const guardados = rememberResults(msg, top)
@@ -219,7 +229,7 @@ export default {
       )
       try {
         const rango = guardados ? ` Responde con un número del 1 al ${guardados} (vale 5 min) para descargarlo.` : ''
-        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} ${canal ? `del canal *${canal}*${h?.words ? ` con *${h.words}*` : ''}` : `para *${query}*`}.${rango}`, edit: status.key })
+        await sock.sendMessage(msg.chat, { text: `✎ ${top.length} resultado${top.length === 1 ? '' : 's'} ${canal ? `del canal *${canal}*${h?.words ? ` con *${h.words}*` : ''}` : `para *${texto}*`}.${rango}`, edit: status.key })
       } catch {}
 
       for (let i = 0; i < top.length; i++) {
